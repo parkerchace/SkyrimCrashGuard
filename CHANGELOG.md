@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.3.3] - 2026-03-15
+
+### Removed
+- **Address Library Stub System** - Removed fake address library generation code that was causing compatibility issues
+  - Deleted DllMain.cpp and its stub address library creation logic
+  - Removed AddressLibraryStub.h header file
+  - Removed EnsureAddressLibraryStub() function from AddressLib.h
+  - Removed stub initialization call from main.cpp
+  - Plugin now requires real Address Library for SKSE (SE/AE/VR) to be installed
+  - Fixes issue where fake address library files would break other mods
+
+### Technical Notes
+- The stub system was creating empty address library .bin files that would interfere with other SKSE plugins
+- Real Address Library is required for hook functions to work properly
+- This change improves compatibility with other mods and follows standard SKSE plugin practices
+
 ## [2.3.2] - 2026-03-15
 
 ### Documentation
