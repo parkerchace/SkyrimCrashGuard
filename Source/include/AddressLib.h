@@ -41,19 +41,6 @@ inline std::string Reason() {
 }
 
 /**
- * @brief Ensure address library stub is prepared
- */
-inline void EnsureAddressLibraryStub() {
-    // This is a no-op with CommonLibSSE-NG as it handles address library internally
-    // Just ensure REL is initialized
-    try {
-        (void)REL::IDDatabase::get();
-    } catch (...) {
-        // Ignore errors - will be caught by IsValid() checks
-    }
-}
-
-/**
  * @brief Resolve an address ID for SE/AE
  * @param ids Pair of {SE_ID, AE_ID}
  * @return Optional address if found
