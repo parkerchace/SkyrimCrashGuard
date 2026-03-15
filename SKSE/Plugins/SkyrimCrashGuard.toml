@@ -1,0 +1,304 @@
+# ═══════════════════════════════════════════════════════════════════════
+# Skyrim Crash Guard Configuration
+# Engine-Level Crash Recovery System
+# ═══════════════════════════════════════════════════════════════════════
+
+[General]
+enabled = true
+logLevel = 1  # 0=off, 1=errors/warnings only, 2=info, 3=debug, 4=trace
+
+[Hotkeys]
+# Menu hotkey (default: F11)
+# Change this if you want to use a different key
+# Available keys: F1-F12, Insert, Delete, Home, End, PageUp, PageDown, etc.
+menuToggleKey = "F11"
+
+# For controller-only users (Steam Deck, ROG Ally, VR):
+# Native controller binding is not supported due to technical limitations.
+# Use Steam Input or similar software to map a controller button to the menuKey.
+# Example Steam Input combos: Back+Start, L4+R4, Hold Select (2s)
+
+[VEH]
+# Vectored Exception Handler (Layer 3)
+enabled = true
+cascadeLimit = 3  # Max recovery attempts during cascade
+
+[Patches]
+# Proactive engine patches
+enabled = true
+
+[ProactiveValidation]
+# Layer 1: Validate data before it reaches the engine
+enableMeshValidation = true
+enableAnimationValidation = true
+enableScriptMonitoring = true
+enableCellValidation = true
+
+[SafetyChecks]
+# Layer 2: Null pointer and bounds safety
+enableNullChecks = true
+enableBoundsChecks = true
+enableFormIDChecks = true
+
+[StateManagement]
+# Layer 5: Transactional state management
+enableStateSnapshots = true
+maxSnapshotsPerSession = 100
+
+[Learning]
+# Layer 6: Pattern learning and strategy optimization
+enableLearning = true
+patternDatabasePath = "Data/SKSE/Plugins/CrashGuard/patterns.json"
+
+[Notifications]
+# User notification settings
+showNotifications = true
+autoRecoverSafe = true        # Auto-recover Safe severity crashes
+autoRecoverWarning = false    # Prompt for Warning severity
+notificationTimeoutSeconds = 30
+
+[UserNotifications]
+# ═══════════════════════════════════════════════════════════════════════
+# User Notification Settings
+# ═══════════════════════════════════════════════════════════════════════
+# Control when CrashGuard asks for your input vs auto-recovering crashes.
+# 
+# Severity Levels:
+#   Safe     - Visual glitches only (rendering, UI, cosmetic)
+#   Warning  - Missing resources, null pointers (recoverable, no data loss)
+#   Critical - Save data or persistent state affected (corruption risk)
+#   Fatal    - Stack corruption, unrecoverable (cannot safely continue)
+
+# When to show user choice dialog (true = ask user, false = auto-recover)
+NotifyOnSafe = false          # Visual glitches - auto-recover silently
+NotifyOnWarning = false       # Missing resources - auto-recover with toast
+NotifyOnCritical = true       # Save data risk - ALWAYS ask user (RECOMMENDED)
+NotifyOnFatal = true          # Unrecoverable - ALWAYS ask user (RECOMMENDED)
+
+# Toast notifications for auto-recovered crashes
+ShowToastForAutoRecovery = true    # Show brief notification for Warning crashes
+ToastDurationSeconds = 5           # How long toast appears (seconds)
+
+# Dialog behavior
+DialogTimeoutSeconds = 30          # Auto-select after this many seconds
+TimeoutDefaultAction = "Continue"  # Options: Continue, LoadLastSave, MainMenu
+
+# Advanced options
+ShowTechnicalDetails = false       # Show stack traces and memory details in dialog
+AllowCrashAnywayOption = true      # Show "Let It Crash" button for debugging
+BatchSimilarCrashes = true         # Group similar crashes in one dialog (reduces spam)
+
+# Logging
+LogAllRecoveries = true            # Log all recoveries to F11 menu history
+LogSilentRecoveries = false        # Log even silent Safe recoveries
+
+[Performance]
+scriptTimeoutMs = 5000
+maxRecoveryAttempts = 3
+
+[Logging]
+enableDetailedLogging = false  # Set to true only for debugging
+logOnlyFailures = true  # Only log validation failures, not successes
+logSuccessfulRecoveries = false  # Don't log successful recoveries (reduces bloat)
+aggregatePatterns = true
+maxLogSizeMB = 10  # Rotate logs at 10MB
+maxLogFiles = 3  # Keep last 3 log files
+
+[InputDiagnostics]
+# F11 Menu Input Diagnostics (for troubleshooting gamepad mode issues)
+enableInputDiagnostics = true  # Set to true to enable detailed input logging
+
+[Compatibility]
+# Compatibility modes are automatically enabled when external tools are detected.
+# CrashLogger: Auto-detected via DLL presence
+# S.L.A.C.K.: Auto-detected via DLL presence
+# No manual configuration needed.
+
+[PapyrusValidation]
+enabled = true           # Enable Papyrus native function parameter validation
+logFailures = true       # Log when parameters fail validation
+strictMode = false       # Block function calls that fail validation (use with caution)
+
+[ResourceLimiter]
+# Proactive resource management to prevent engine exhaustion
+# Prevents stack overflows and memory crashes from excessive spawns
+enabled = true
+maxActors = 50            # Safe limit for actors in loaded cells (default: 50, vanilla ~200-300)
+maxReferences = 10000     # Safe limit for references (vanilla ~5000-8000)
+maxParticles = 2000       # Safe limit for particle systems
+autoCullingEnabled = true # Automatically cull distant actors when approaching limits
+dynamicAdjustmentEnabled = true # Intelligently adjust limits based on memory, FPS, and location
+cullDistance = 10000.0    # Distance threshold for auto-culling (game units)
+warningThreshold = 0.80   # Warn at 80% capacity
+cullThreshold = 0.90      # Auto-cull at 90% capacity
+
+[NPCManagement]
+# ═══════════════════════════════════════════════════════════════════════
+# NPC Management System - Reactive approach with smart prioritization
+# ═══════════════════════════════════════════════════════════════════════
+# This system monitors NPC count every 2 seconds and immediately removes
+# excess NPCs when over threshold. Uses smart burden-based prioritization
+# to remove the most performance-heavy NPCs first.
+#
+# HOW IT WORKS:
+# 1. Every 2 seconds, counts active NPCs in loaded cells
+# 2. If over threshold, immediately removes excess NPCs
+# 3. Prioritizes removal based on "burden" score (combat, magic, AI complexity)
+# 4. Protects essential/quest NPCs and whitelisted keywords
+# 5. Removes blacklisted NPCs first (summoned creatures, duplicates)
+# 6. Can disable NPCs instead of deleting (allows restoration later)
+# 7. Restores disabled NPCs when room becomes available
+#
+# MODDED PLAYTHROUGHS:
+# - Per-cell baseline: Learns normal NPC count for each cell
+# - Example: Modded Whiterun with 200 NPCs? System learns this as baseline
+# - Only removes NPCs when you exceed baseline + delta (default: +20)
+# - Adapts to any mod that adds NPCs to cities/towns
+
+npcToolsToasts = true         # Show toast notifications for NPC actions
+autoManageNPCs = true         # Enable automatic NPC management
+npcReleaseRate = 5            # How many queued NPCs to release at once (1-20)
+npcCleanupRate = 10           # How many dead bodies to clean at once (1-50)
+maxDeadBodies = 20            # Max dead bodies before auto-cleanup (5-100)
+
+# Per-Cell Baseline System
+# Learns the normal NPC count for each cell (e.g., modded cities with 200 NPCs)
+# and only removes NPCs when you exceed baseline + delta
+usePerCellBaseline = true     # Use per-cell baseline instead of global threshold
+cellNPCDelta = 20             # How many NPCs above baseline to allow (5-100)
+
+# Disable vs Delete
+# When true, NPCs are disabled (hidden) instead of deleted, allowing restoration
+disableInsteadOfDelete = true # Disable NPCs instead of deleting (allows restoration)
+maxDisabledNPCs = 50          # Max NPCs to keep disabled (10-200)
+npcRestoreRate = 5            # How many disabled NPCs to restore at once (1-20)
+restoreBehindPlayer = true    # Only restore NPCs behind player (out of view for immersion)
+
+# Smart Prioritization
+# Uses burden scoring to remove most performance-heavy NPCs first
+useSmartPrioritization = true # Prioritize which NPCs to remove based on burden
+
+# Whitelist/Blacklist Keywords (comma-separated)
+# Whitelist: NPCs with these keywords will NEVER be disabled
+# Examples: "Jarl" protects all Jarls, "Lydia" protects your housecarl
+# Add your custom keywords: "MyImportantNPC,QuestGiver,DoNotRemove"
+npcWhitelistKeywords = "Jarl,Steward,Housecarl,Companion,Merchant,Vendor,Trainer,Innkeeper,Blacksmith"
+
+# Blacklist: NPCs with these keywords will be disabled FIRST
+# Examples: "Summon" removes conjured creatures first, "Bandit" removes generic enemies
+# Add your custom keywords: "Spam,Duplicate,Test"
+npcBlacklistKeywords = "Summon,Conjure,Reanimate,Duplicate,Clone,Test,Debug"
+
+# Burden Weights - Higher = more likely to be disabled
+# Adjust these to fine-tune which NPCs are considered "heavy"
+# Combat NPCs are prioritized for removal to reduce performance impact
+burdenInCombat = 30           # NPC is actively fighting
+burdenHasMagicEffects = 15    # NPC has active spell effects
+burdenComplexAI = 15          # NPC is running AI packages (patrol, travel, etc.)
+burdenSummoned = 50           # Summoned/conjured creatures (temporary by design)
+burdenDuplicate = 100         # Duplicate NPCs (2nd+ copy of same NPC)
+
+[ActorLOD]
+# "Quantum" Actor LOD - NPCs exist in different detail states based on relevance
+# Like quantum mechanics: actors "collapse" into full detail when observed (near player)
+enabled = true
+updateInterval = 2.0  # Check LOD states every 2 seconds
+
+# Distance thresholds (game units, ~1 unit = 1.4cm)
+fullDetailDistance = 3000.0    # <3000: Full AI, dialogue, animations (~42m)
+mediumDetailDistance = 6000.0  # 3000-6000: Simplified AI, no dialogue (~84m)
+lowDetailDistance = 10000.0    # 6000-10000: Position only, no AI (~140m)
+hibernateDistance = 15000.0    # >15000: Remove 3D, store state (~210m)
+
+# Safety settings - preserve quest/script continuity
+neverHibernateQuestNPCs = true      # Quest-critical NPCs always stay loaded
+neverHibernateCombatNPCs = true     # Combat NPCs stay in at least LowDetail
+neverHibernateFollowers = true      # Followers always FullDetail
+preserveScriptedNPCs = true         # NPCs with active scripts stay MediumDetail+
+neverSuspendEssential = true        # Essential NPCs never fully suspended
+
+# Transition settings
+transitionHysteresis = 0.10  # 10% buffer to prevent flickering at boundaries
+enablePredictiveLOD = true   # Pre-load NPCs player is moving toward
+
+# Memory optimization
+aggressiveHibernation = false  # If true, hibernate more aggressively
+suspendGenericNPCs = true      # Allow suspending generic spawned NPCs
+
+[ActorLODDiagnostics]
+# ActorLOD diagnostics configuration
+# NOTE: Separate diagnostic file dumps were removed per user preference.
+# Runtime diagnostics print to the main plugin log only.
+actorLODDiagnosticsEnabled = false
+# Throttle and level controls for ActorLOD diagnostics (in-memory/stateful throttling)
+# 0 = Off, 1 = TransitionsOnly, 2 = Verbose
+actorLODDiagnosticsLevel = 1
+# Per-actor cooldown (seconds) to prevent repeated lines for the same actor
+perActorCooldownSeconds = 30
+# Global maximum diagnostic lines per second (simple windowed cap)
+globalRatePerSecond = 20
+# Maximum size reserved for optional diagnostic files (kept for compatibility)
+actorLODDiagnosticsMaxSizeMB = 5
+
+[InputConflictPrevention]
+# ═══════════════════════════════════════════════════════════════════════
+# Input Conflict Prevention System
+# ═══════════════════════════════════════════════════════════════════════
+# Prevents mouse wheel and D-pad from controlling camera/favorites while
+# scrolling through menus (dialogue, inventory, barter, etc.)
+#
+# HOW IT WORKS:
+# 1. Vanilla menus are automatically detected (no configuration needed)
+# 2. Modded menus are auto-detected using pattern matching
+# 3. Detected menus are automatically learned and remembered forever
+# 4. You can manually add menus if auto-detection misses them
+#
+# INPUT TRACKING:
+# - When enabled, tracks which inputs each menu actually uses
+# - Logs detailed input profiles for diagnostics and mod developers
+# - Helps identify conflicts without interfering with mod functionality
+# - Check F11 menu Settings tab to see detected menus
+#
+# LOGGING:
+# - Set logLevel=2 (info) to see all menu open/close events
+# - Set logLevel=3 (debug) to see detailed detection info
+# - Check the log to find menu names if camera still zooms in a menu
+
+enabled = true                    # Enable input conflict prevention
+blockCameraZoom = true            # Block camera zoom (mouse wheel) in menus
+blockFavorites = true             # Block favorites menu (D-pad) in menus
+autoDetectModdedMenus = true      # Auto-detect and learn modded menus
+enableInputTracking = true        # Track which inputs each menu uses (for diagnostics)
+
+# Custom scrollable menus (optional - only needed if auto-detection fails)
+# Add menu names here if camera still zooms in a specific modded menu
+# Check the log file to find the exact menu name
+# Example: customScrollableMenus = ["SkyUIMenu", "CustomDialogueMenu"]
+customScrollableMenus = []
+
+# NOTE: Auto-detected menus are saved to:
+#   Data/SKSE/Plugins/SkyrimCrashGuard/learned_menus.txt
+# You can edit that file directly to add/remove menus
+
+[ImGui]
+# ═══════════════════════════════════════════════════════════════════════
+# ImGui F11 Menu Settings
+# ═══════════════════════════════════════════════════════════════════════
+
+[Benchmark]
+# Built-in benchmark actions control (enabled by default for in-game profiling)
+allowBuiltinActions = true
+# The F11 menu provides a visual interface for configuration and diagnostics.
+# If you experience conflicts with other mods that use ImGui, you can disable it.
+#
+# IMPORTANT: When disabled, ALL configuration must be done via this TOML file.
+# You will lose access to:
+#   - Visual configuration interface
+#   - Real-time resource monitoring
+#   - Crash history viewer
+#   - Performance metrics
+#   - Input diagnostics
+#
+# Only disable if you have a specific conflict with another mod's ImGui overlay.
+
+disableMenu = false  # Set to true to completely disable the F11 menu

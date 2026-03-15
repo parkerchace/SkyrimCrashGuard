@@ -1,0 +1,582 @@
+﻿[center][size=6][b]Skyrim Crash Guard[/b][/size][/center]
+[center][i][b][color=#ff7700]EXPERIMENTAL[/color][/b] Engine-Level Crash Recovery System for Skyrim SE/AE/VR that uses Vectored Exception Handling[/i][/center]
+[center][quote][i]Why crash for one log? Catch exceptions, keep running, and batch-collect your debug data.[/i][/quote]﻿[/center]
+[center]✦ ═══════════════════════════════════════════════════════════ ✦[/center]
+
+[center][size=5][b]Overview[/b][/size][/center]
+
+Skyrim Crash Guard is an SKSE plugin that attempts to recover from crashes in real-time instead of just logging them. When your game would normally crash, this mod tries to catch it and keep you playing. [b]This approach is inherently risky[/b] as it allows the game to continue running after a crash, potentially in a corrupted state.
+
+[b]Who is this for?[/b] People with thousands of mods who want to keep playing instead of crashing. People who debug mods and want to collect multiple crash logs in one session. As I see it: [i]Why crash for one log? Catch exceptions, keep running, and batch-collect your debug data.[/i]
+
+[b]How it works:[/b] The mod uses Vectored Exception Handling (VEH), a Windows feature that lets programs intercept crashes before they happen. When a crash occurs, the mod analyzes it and attempts recovery through progressively more aggressive strategies. Some crashes can be recovered, many cannot.
+
+[b]Compatibility:[/b] Skyrim SE 1.5.97, AE 1.6.x (all versions), Skyrim VR 1.4.15
+[b]Status:[/b] v2.3.2
+
+
+[center]✦ ═══════════════════════════════════════════════════════════ ✦[/center]
+
+[center][size=5][b][color=#ff7700]IMPORTANT: READ BEFORE INSTALLING[/color][/b][/size][/center]
+
+[b]This is highly experimental software that manipulates crash behavior.[/b] It attempts to recover from crashes using Vectored Exception Handling (VEH), which is inherently risky and can lead to unpredictable behavior.
+
+[list]
+[*][b]NO GUARANTEES:[/b] This mod makes best-effort attempts to recover from crashes. Many crashes cannot be recovered (I can't download you more RAM). Recovery attempts may fail, cause visual glitches, game instability, or corrupt game state. 
+[*][b]SAVE CORRUPTION RISK:[/b] VEH-based crash recovery is fundamentally unsafe for save files. Recovering from a crash means the game continues in a potentially corrupted state. Save corruption is possible and may not be immediately apparent. [color=#ff7700]NO ONE HAS REPORTED SAVE CORRUPTION[/color] since I fixed S.L.A.C.K. compatibility, but...[b]back up your saves.[/b]
+[*][b]FEATURES MAY NOT WORK:[/b] All features are experimental and may not work as intended. Some features may cause more problems than they solve, but of course that is not the intention. Crash recovery success varies wildly depending on crash type and game state. Sharing your logs with the Bugs section helps me prevent more types of crashes!
+[*][b]USE AT YOUR OWN RISK:[/b] This mod manipulates low-level exception handling and game memory. It can cause system instability, game crashes, save corruption, or unexpected interactions with other mods. [b]You assume all risk by using this mod.[/b]
+[/list]
+[b]Recommended:[/b] Use alongside [url=https://www.nexusmods.com/skyrimspecialedition/mods/59818]Crash Logger SSE[/url] or [url=https://www.nexusmods.com/skyrimspecialedition/mods/88329]Trainwreck[/url] to capture crashes this mod cannot recover.
+
+
+[center]✦ ═══════════════════════════════════════════════════════════ ✦[/center]
+
+[center][size=5][b]A Note on Transparency[/b][/size][/center]
+
+This mod was previously removed from Nexus twice due to issues with the description. The first removal was for making assertions that features were "safe" when VEH-based crash recovery is inherently not guaranteed to be safe. The second removal was for different safety assertions and for listing features that were commented out, stubbed, or not fully implemented in the code.
+
+I've completely rewritten this description to be accurate about what the mod actually does, its limitations, and its risks. If you notice any discrepancies between what's described here and what's actually in the code, please contact me on Nexus immediately.
+
+[b]Community Collaboration Welcome:[/b] If you have ideas, suggestions, or want to contribute to development, please reach out on the Nexus mod page. This is an open-source project (MIT license) and community input is valued.
+
+[b]Real-World Testing:[/b] Despite the warnings and experimental nature, users running load orders of up to 8,000 mods have been using this mod for over a month with no reported save corruption. This doesn't guarantee safety, but it does suggest the mod can be useful in heavily modded setups for fun and or debugging. Your mileage may vary.
+
+
+[center]✦ ═══════════════════════════════════════════════════════════ ✦[/center]
+
+[center][size=5][b]What Does It Actually Do?[/b][/size][/center]
+
+[b]Catches crashes and keeps you playing.[/b] When your game would normally crash, this mod intercepts it and attempts recovery. It also validates game data before problems occur and manages resources to prevent crashes from happening in the first place.
+
+[b]Three main systems:[/b]
+[list]
+[*][b]Crash Recovery:[/b] Intercepts crashes (null pointers, corrupted objects, particle effects, skeleton issues) and attempts to fix them on the fly
+[*][b]Proactive Validation:[/b] Provides validation utilities for 3D models, scripts, game objects, and areas when called by other systems
+[*][b]Resource Monitoring & Management:[/b] Monitors memory pressure (does not free memory), actively manages NPC counts, tracks performance, logs everything
+[/list]
+
+[b]Real-time monitoring:[/b] F11 menu shows live stats, crash history, and lets you adjust settings without restarting.
+
+[center]✦ ═══════════════════════════════════════════════════════════ ✦[/center]
+
+[center][size=5][b]Installation[/b][/size][/center]
+
+[size=4][b]Requirements[/b][/size]
+[list]
+[*]SKSE64 (2.0.x or later) or SKSEVR
+[*]Address Library for SKSE (or VR version)
+[*]Windows 10/11 (64-bit)
+[/list]
+
+[size=4][b]Install Steps[/b][/size]
+[list=1]
+[*]Download from [b]Files[/b] tab
+[*]Install with your mod manager (MO2/Vortex)
+[*]Launch Skyrim via SKSE
+[*]Press F11 in-game to open configuration menu (optional)
+[/list]
+
+[b]That's it![/b] No additional configuration required. The mod attempts to work with default settings.
+
+[center]✦ ═══════════════════════════════════════════════════════════ ✦[/center]
+
+[center][size=5][b]Compatibility[/b][/size][/center]
+
+[b]Should Work With:[/b]
+[list]
+[*]Crash Logger SSE & Trainwreck (complementary, they handle crashes CrashGuard can't recover)
+[*]Engine Fixes
+[*]QuickLoot
+[*]SkyUI and most menu mods
+[*]RaceMenu / skee64
+[*]OBody, hdtSMP
+[*]All mod managers (MO2, Vortex, manual)
+[*]Designed for use with modded setups (results may vary)
+[/list]
+
+[b]Potential Issues:[/b]
+[list]
+[*]Some ImGui mods may conflict with F11 menu (can be disabled via TOML)
+[*]Please report any compatibility issues on the mod page
+[/list]
+
+[b]Supported Versions:[/b]
+[list]
+[*]Skyrim Special Edition 1.5.97 (pre-AE)
+[*]Skyrim Anniversary Edition 1.6.x (all versions)
+[*]Skyrim VR 1.4.15
+[/list]
+
+[center]✦ ═══════════════════════════════════════════════════════════ ✦[/center]
+
+[center][size=5][b]FAQ[/b][/size][/center]
+
+[b]Q: Will this prevent ALL crashes?[/b]
+A: No. No mod can prevent 100% of crashes. Crash Guard attempts to recover from some common crash types (null pointers, vtable corruption, access violations), but many crashes cannot be recovered. Even "successful" recoveries may leave the game in an unstable state. Some crashes (stack overflow, heap corruption, hardware/driver failures) are explicitly rejected because recovery would be unsafe. This is experimental software with unpredictable results. It may help in some scenarios but can also cause new problems.
+
+[b]Q: Does this replace Crash Logger/Trainwreck?[/b]
+A: No, they complement each other. Crash Guard attempts to catch and recover from crashes (and logs them with detailed context), while Crash Logger/Trainwreck handle the unrecoverable ones with full memory dumps. Many users run both for maximum coverage.
+
+[b]Q: Will this work with my heavily modded load order?[/b]
+A: It's designed to work with modded setups. The memory monitoring tells you when you're approaching resource limits, helps you identify mod conflicts, and the crash avoidance keeps you playing for longer. However, no mod can fix fundamental conflicts, broken mods, or missing masters. Results will vary.
+
+[b]Q: Is this safe for my save files?[/b]
+A: [b]No.[/b] When the mod recovers from a crash, the game continues running in a potentially corrupted state (corrupted memory, stack, heap, or game objects). Any saves made after a recovery may contain hidden corruption. The "save protection" features are experimental attempts to reduce risk, but they [b]cannot guarantee save safety[/b]. Save corruption is possible and may manifest sessions later. [b]Always maintain external backups. Do not rely on this mod to protect your saves.[/b]
+
+[b]Q: What crashes CANNOT be recovered?[/b]
+A: Stack overflow, heap corruption, system DLL internal crashes (ntdll.dll, kernel32.dll, VCRUNTIME140.dll), CrashGuard's own crashes, crashes during game exit, and crashes after cascade protection limits are exceeded. These will be logged by CrashLogger/Trainwreck if installed.
+
+
+[center]✦ ═══════════════════════════════════════════════════════════ ✦[/center]
+
+[center][size=5][b]Technical Details[/b][/size][/center]
+
+[size=4][b]7-Layer Recovery Chain[/b][/size]
+When a crash occurs, Crash Guard attempts recovery through progressively more aggressive strategies:
+
+[list=1]
+[*][b]L1: Known Site Recovery[/b]
+Pre-analyzed crash addresses for the game and mod DLLs. Attempts instant recovery with zero decoding overhead. Supports both normal mode (zero register, skip instruction) and bailout mode (exit entire function to prevent cascade crashes).
+
+[*][b]L1b: Instruction Pattern Matching[/b]
+Version-independent recovery using Zydis disassembler. Matches semantic patterns instead of fixed offsets. Handles 4 instruction patterns:
+  • P1: Indirect calls with bad base (null vtable) → function return
+  • P2: Indirect jumps with bad base → function return
+  • P3: Reads from null/invalid pointers → zero destination register, skip instruction
+  • P4: Writes to null/invalid pointers → skip write (game code) or function return (system DLLs)
+
+[*][b]L2: Learned Site Cache[/b]
+Fast-path cache for crashes previously decoded by L4. Stores up to 512 learned sites with zero decoding overhead for future crashes at the same location.
+
+[*][b]L3: Register Fixup[/b]
+Redirects faulting base register to point into 64KB safety buffer and re-executes the same instruction. Includes cascade protection (max 3 hits per location, max 4 fires in 100ms window).
+
+[*][b]L4: Instruction Skip[/b]
+Decodes faulting instruction with Zydis, zeros destination register, advances RIP past the instruction. Caches result in L2 for future hits. Uses function return instead of skip for CALL/JMP instructions.
+
+[*][b]L5: Function Return[/b]
+Pops return address from stack, sets RAX=0 (null return value), jumps to caller. Validates RSP is readable and return address is in executable memory.
+
+[*][b]L6: Deep Stack Walk[/b]
+Scans up to 8KB of stack for executable pointers. Uses CALL instruction heuristics to reduce false positives. Last resort recovery attempt.
+[/list]
+
+[size=4][b]Cascade Protection[/b][/size]
+Multi-layer protection to prevent infinite recovery loops:
+[list]
+[*][b]Global limit:[/b] Max 100 crashes in 5 seconds (trips cascade breaker, 10-second cooldown)
+[*][b]Function-level tracking:[/b] Max 30 crashes per 256-byte function block (5-second reset window)
+[*][b]Recovery cooldown:[/b] 5ms minimum between recoveries (prevents rapid-fire loops)
+[*][b]Per-RIP limits:[/b] L3 Register Fixup limited to 3 hits per location before escalating to L4/L5
+[*][b]Special handling:[/b] Moon/Sky rendering gets elevated limit (200 crashes) during save load for SkyrimSoulsRE compatibility
+[/list]
+
+When cascade limits are exceeded, CrashGuard stops attempting recovery to prevent making things worse.
+
+[center]✦ ═══════════════════════════════════════════════════════════ ✦[/center]
+
+[center][size=5][b]Detailed Feature Documentation[/b][/size][/center]
+
+[size=4][b]Crash Recovery (Detailed)[/b][/size]
+
+[b]What crashes can be recovered:[/b]
+[list]
+[*]Null pointer crashes: accessing memory that doesn't exist (most common)
+[*]Corrupted vtables: broken function pointers in game objects
+[*]Fire spell particle crashes: pFireballCore06-Emitter, MPSFireBoltImpact01
+[*]NPC skeleton crashes: during LOD transitions or animation loading
+[*]Moon/Sky rendering crashes: during save/load operations
+[*]RaceMenu overlay/morph null pointers: character customization crashes
+[*]Invalid memory reads/writes: accessing freed or invalid memory regions
+[/list]
+
+[b]What crashes cannot be recovered:[/b]
+[list]
+[*]Stack overflow: too many nested function calls
+[*]Heap corruption: memory management system is broken
+[*]System DLL crashes: ntdll.dll, kernel32.dll, VCRUNTIME140.dll internal errors
+[*]Hardware/driver failures: GPU crashes, audio driver crashes (XAudio2_7.dll)
+[*]Crashes during game exit: game is shutting down anyway
+[*]Cascade protection exceeded: too many crashes in rapid succession (safety limit)
+[/list]
+
+[b]How recovery works:[/b]
+The mod uses a 7-layer recovery chain, trying progressively more aggressive strategies until one works. Each layer has different success rates and safety profiles. When a crash occurs, the mod analyzes the crash type, identifies the faulting instruction, and applies the appropriate recovery strategy. If recovery succeeds, the game continues running. If all layers fail, the crash is passed to CrashLogger/Trainwreck for logging.
+
+[size=4][b]Proactive Validation (Detailed)[/b][/size]
+
+[size=4][b]Mesh Validation[/b][/size]
+Provides validation utilities for 3D models when explicitly called:
+[list]
+[*]Status: Implemented as utility functions (not automatically integrated into mesh loading pipeline)
+[*]Vertex checks: validates vertex count (must be >0) and positions (no NaN/Inf values)
+[*]Normal checks: verifies surface normals are unit length and valid (used for lighting calculations)
+[*]Texture coordinate checks: ensures UV coordinates are finite and valid for texture mapping
+[*]Triangle checks: verifies mesh has at least 3 vertices to form triangles
+[*]Bone weight checks: for skinned meshes, validates bone indices are in range and weights sum to 1.0
+[*]Smart skipping: NiNode scene containers are trusted without deep inspection (performance optimization)
+[*]Lenient approach: only extremely broken models are rejected (permissive validation reduces false positives)
+[*]Integration: Available for use by crash recovery systems and manual validation calls
+[/list]
+
+[b]Repair capabilities:[/b]
+[list]
+[*]Can generate missing texture coordinates using planar UV mapping (XY projection, fully implemented)
+[*]Can allocate missing normal arrays and set to up vector (0,0,1) - not true calculation from triangles
+[*]Can replace NaN/Inf values with safe defaults (0.0 for positions, up vector for normals)
+[*]Can clamp bone weights to valid range [0.0, 1.0]
+[*]When repair fails: returns nullptr and lets game handle it (may cause visual glitch or crash)
+[/list]
+
+[size=4][b]Papyrus Validation[/b][/size]
+Validates parameters for specific problematic Papyrus native functions:
+[list]
+[*]Status: Implemented with limited function coverage (currently validates 1 function: SmartHarvest::NotifyActivated)
+[*]Null checks: validates objects, items, and strings aren't null before scripts use them
+[*]Type checks: ensures scripts pass correct data types (Actor vs ObjectReference vs Form)
+[*]Form checks: verifies game objects exist and are loaded before scripts reference them
+[*]Array checks: validates array indices are in bounds and array data is valid
+[*]String checks: ensures text data is valid and not corrupted
+[*]Safe fallbacks: replaces broken data with safe defaults (empty string, null form, zero value)
+[*]Expansion: Additional functions can be registered for validation as needed
+[*]Tracking: counts how many problems were caught and fixed (visible in F11 menu)
+[/list]
+
+[size=4][b]FormID Validation[/b][/size]
+Checks game object IDs before looking them up to prevent crashes:
+[list]
+[*]Format checks: ensures FormID is non-zero and in valid range
+[*]Plugin checks: verifies the mod that owns this FormID is actually loaded
+[*]Existence checks: confirms the object exists in TESDataHandler before trying to use it
+[*]Type checks: validates you're getting the right kind of object (Actor vs Weapon vs Armor)
+[*]Caching: remembers valid FormIDs to avoid repeated lookups (performance optimization)
+[*]Invalid tracking: remembers broken FormIDs to skip them immediately next time
+[*]Safe lookups: returns nullptr instead of crashing when a FormID is invalid
+[*]Mod identification: resolves FormID to plugin name for debugging (e.g., "Skyrim.esm", "MyMod.esp")
+[/list]
+
+[size=4][b]Script Monitoring[/b][/size]
+Watches Papyrus scripts while they run to catch problems:
+[list]
+[*]Execution time tracking: measures how long each script takes to run (milliseconds)
+[*]Timeout detection: catches scripts that run too long (infinite loops, heavy calculations)
+[*]Stack depth monitoring: detects scripts calling themselves repeatedly (recursion depth)
+[*]Memory tracking: watches how much memory scripts allocate (heap usage)
+[*]Error logging: records script errors with full context for debugging
+[*]Performance profiling: identifies slow scripts that impact framerate
+[/list]
+
+[size=4][b]Cell Validation[/b][/size]
+Checks game areas (cells) before loading them to prevent crashes:
+[list]
+[*]Cell structure checks: validates cell data isn't corrupted (FormType is Cell, flags are consistent)
+[*]Object checks: validates all objects in the cell before spawning them
+  - Checks if base form exists and is loaded  - Validates position is finite (no NaN/Inf coordinates)  - Ensures FormID is valid and object isn't deleted  - Verifies object isn't disabled or marked for deletion[*]Invalid object detection: finds and logs broken objects (cannot remove them due to CommonLibSSE API limitations)
+[*]Circular reference detection: catches objects that reference each other in loops (prevents infinite iteration)
+[*]Cell blacklisting: remembers problem cells that cause crashes and blocks them from loading (max 1000 entries)
+[*]Safe cell tracking: maintains list of known stable locations for emergency teleportation
+  - Whiterun (main city, very stable)  - Riverwood (starting village, stable)  - Solitude (capital city, stable)  - Windhelm (major city, stable)  - Riften (major city, stable)  - Markarth (major city, stable)  - Helgen Keep (tutorial interior, very stable)[/list]
+
+[b]Limitations:[/b]
+[list]
+[*]Validation is best-effort and cannot catch all potential issues before they occur
+[*]Some crashes happen too quickly for proactive validation to intercept (race conditions)
+[*]Validation adds minimal overhead (~1-2% performance impact) but cannot prevent all crash types
+[*]Complex mod interactions may bypass validation checks (mods that hook the same functions)
+[*]Validation focuses on common crash patterns but cannot cover all edge cases
+[*]Cell validation cannot remove invalid objects, only detect and log them (API limitation)
+[/list]
+
+[center]✦ ═══════════════════════════════════════════════════════════ ✦[/center]
+
+[center][size=5][b]Monitoring & Metrics[/b][/size][/center]
+
+[size=4][b]Memory Usage Tracking[/b][/size]
+Reports current memory usage statistics and detects memory pressure with 4 levels:
+[list]
+[*]Normal: <70% memory usage (no action needed, system running smoothly)
+[*]Elevated: 70-85% memory usage (monitoring increased, warnings in log)
+[*]High: 85-95% memory usage (warnings issued, consider reducing load)
+[*]Critical: >95% memory usage (emergency measures recommended, crash risk high)
+[/list]
+
+[b]Important:[/b] The monitoring system tracks and reports resource usage but does not directly free memory. Actual memory management is handled by the game engine. Memory pressure detection is informational only and cannot prevent out-of-memory crashes.
+
+[size=4][b]NPC Management (Detailed)[/b][/size]
+
+[b]Smart Protection System:[/b]
+The mod never deletes NPCs that are important to the game or your playthrough:
+[list]
+[*]Never deletes: player, player teammates/followers
+[*]Never deletes: essential NPCs (marked essential in game data)
+[*]Never deletes: unique/important NPCs (Lydia, Balgruuf, Elisif, Ulfric, etc.)
+[*]Keyword-based whitelist/blacklist: configurable protection for specific NPC types
+[*]Safe to delete: generic enemies (bandits, draugr, forsworn, vampires, skeletons, spiders, wolves, bears, saber cats), guards (they respawn), soldiers, generic citizens
+[/list]
+
+[b]How It Works:[/b]
+[list]
+[*]Default threshold: 50 NPCs (configurable 50-2000 in F11 menu or TOML)
+[*]Real-time counting: NPC count checked every 0.5 seconds during normal operation
+[*]Emergency detection: NPC count checked EVERY FRAME to catch massive spawns (2000+ NPCs) before they crash
+[*]PlaceAtMe hook: DISABLED (causes stack alignment crashes), uses reactive deletion instead
+[/list]
+
+[b]Normal Mode (under 2x threshold):[/b]
+When NPC count exceeds threshold (e.g., 51-99 NPCs with default 50 threshold):
+[list]
+[*]Runs every 0.5 seconds (not every frame, minimal performance impact)
+[*]Uses burden scoring system to prioritize which NPCs to remove:
+  - Base burden: 10 points for all NPCs  - In combat: +20 points (expensive AI, high CPU usage)  - Complex AI packages: +15 points (pathfinding, decision-making overhead)  - Has magic effects: +10 points (spell processing, visual effects)  - 3D loaded: +10 points (rendering cost, GPU/CPU overhead)  - Duplicate instances: +30 points (2nd+ instance of same base NPC)  - Dead NPCs: -5 points (lower priority, handled by separate corpse cleanup)[*]Sorts NPCs by burden score (highest first)
+[*]Removes excess NPCs with highest burden scores
+[*]Configurable behavior: can disable NPCs temporarily (restore later) or delete permanently
+[*]Restoration system: when NPC count drops below threshold, restores disabled NPCs behind player (out of view)
+[/list]
+
+[b]Emergency Mode (at 2x threshold or higher):[/b]
+When NPC count reaches 2x threshold (e.g., 100+ NPCs with default 50 threshold):
+[list]
+[*]Activates immediately when detected (checked every frame for fast response)
+[*]Skips burden calculation entirely (too slow for emergency)
+[*]Deletes non-essential NPCs immediately (no disable/restore)
+[*]Ultra-fast deletion: 500+ NPCs per frame when removing 500+ NPCs total
+[*]Continues deleting every frame until count drops below 2x threshold
+[*]Toast notification: "EMERGENCY: X NPCs! Deleting immediately." (if enabled)
+[*]Designed to handle massive spawn events (console commands, mod bugs, script errors)
+[*]Example: 2000 NPC spawn is caught and deleted within 4-5 frames (0.1 seconds at 60 FPS)
+[/list]
+
+[b]Per-Cell Baseline Learning (Optional):[/b]
+[list]
+[*]Learns normal NPC count for each cell you visit
+[*]Adjusts threshold dynamically: baseline + delta (e.g., 30 baseline + 20 delta = 50 threshold)
+[*]Allows higher NPC counts in naturally crowded areas (cities, battles)
+[*]Allows lower NPC counts in normally empty areas (dungeons, wilderness)
+[*]Configurable: can be disabled to use global threshold only
+[/list]
+
+[b]Dead Body Cleanup (Separate System):[/b]
+[list]
+[*]Default limit: 50 dead bodies (configurable)
+[*]Runs when: dead body count exceeds limit OR near NPC limit with bodies present
+[*]Same protection rules: never removes essential, unique, or quest NPCs (even if dead)
+[*]Cleanup rate: configurable NPCs per cleanup cycle (default: 10)
+[*]Respects same whitelist/blacklist keywords as live NPC management
+[/list]
+
+[b]Configuration Options:[/b]
+[list]
+[*]maxActors: NPC threshold (50-2000, default 50)
+[*]disableInsteadOfDelete: temporarily disable NPCs instead of deleting (default: true)
+[*]maxDisabledNPCs: max NPCs to keep disabled for restoration (default: 100)
+[*]npcRestoreRate: how many NPCs to restore per cycle (default: 5)
+[*]restoreBehindPlayer: only restore NPCs behind player (out of view) (default: true)
+[*]maxDeadBodies: dead body limit (default: 50)
+[*]npcCleanupRate: dead bodies to remove per cleanup (default: 10)
+[*]usePerCellBaseline: enable per-cell baseline learning (default: false)
+[*]cellNPCDelta: NPC count above baseline to trigger removal (default: 20)
+[*]npcWhitelistKeywords: comma-separated keywords for NPCs to never remove
+[*]npcBlacklistKeywords: comma-separated keywords for NPCs to remove first
+[/list]
+
+[size=4][b]Performance Metrics[/b][/size]
+Tracks game performance and crash recovery statistics:
+[list]
+[*]FPS tracking: current framerate, average over last 120 frames, lowest and highest seen
+[*]Frame time: how long each frame takes to render in milliseconds (16.67ms = 60 FPS)
+[*]Memory usage: current memory used, peak usage, and available memory (all in MB)
+[*]Validation counts: how many meshes, animations, scripts, and cells were checked
+[*]Recovery stats: how many crash recoveries were attempted, how many succeeded, success rate percentage
+[*]Pattern learning: how many crash patterns were learned and reused (L2 cache hits)
+[*]Layer effectiveness: success rate for each recovery layer (L1-L6)
+[*]Cascade events: tracks recovery chains and cascade protection triggers
+[*]Common crash sites: identifies frequently occurring crash locations (top 10)
+[*]Recovery latency: measures time spent in recovery handlers (microseconds)
+[*]Live updates: all metrics update in real-time for the F11 menu
+[/list]
+
+[b]Important Limitations:[/b]
+[list]
+[*]The monitoring system attempts to track and report resource usage but does not directly free memory or manage resources
+[*]Actual memory management is handled by the game engine. CrashGuard only monitors and reports
+[*]NPC deletion is triggered by NPC count thresholds, not general memory pressure
+[*]Memory pressure detection is informational only and cannot prevent out-of-memory crashes
+[*]Monitoring adds minimal overhead (~1-2% performance impact) but cannot prevent resource exhaustion from poorly optimized mods
+[*]NPC management cannot fix fundamental mod conflicts or broken spawn scripts (only mitigates symptoms)
+[/list]
+
+[center]✦ ═══════════════════════════════════════════════════════════ ✦[/center]
+
+[center][size=5][b]Crash Logging & Analysis[/b][/size][/center]
+
+[size=4][b]Comprehensive Crash Context[/b][/size]
+Captures complete crash information:
+[list]
+[*]Exception codes (access violation, divide by zero, illegal instruction, etc.)
+[*]CPU registers (RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI, R8-R15, XMM0-XMM15)
+[*]Faulting address (memory location that caused the crash)
+[*]Thread ID and context
+[/list]
+
+[size=4][b]Call Stack with Symbols[/b][/size]
+Detailed stack trace analysis:
+[list]
+[*]Stack walking up to 64 frames using StackWalk64
+[*]Module+offset format for each frame (e.g., SkyrimSE.exe+0xD032C6)
+[*]Function names when symbols are available
+[*]Distinguishes between game code, mod DLLs, and system DLLs
+[/list]
+
+[size=4][b]Game Object Identification[/b][/size]
+Attempts to identify involved game objects:
+[list]
+[*]FormID scanning: searches registers and stack for valid FormIDs
+[*]EditorID resolution: resolves FormIDs to human-readable names
+[*]Plugin identification: determines which mod owns the FormID
+[*]Object type detection: identifies actors, references, cells, etc.
+[/list]
+
+[size=4][b]Root Cause Analysis[/b][/size]
+Analyzes crash context to determine likely cause:
+[list]
+[*]Null pointer dereference detection (address < 0x10000)
+[*]Vtable corruption detection (invalid function pointer in vtable)
+[*]Use-after-free detection (access to freed memory regions)
+[*]Stack corruption detection (invalid stack pointer or return address)
+[*]Invalid function pointer detection (call/jump to non-executable memory)
+[*]Confidence scores: High (90%+), Medium (50-90%), Low (<50%)
+[/list]
+
+[size=4][b]Recovery Statistics[/b][/size]
+Tracks recovery success rates and strategy effectiveness:
+[list]
+[*]L1 Known Sites: 95%+ success rate (pre-analyzed crash addresses)
+[*]L1b Pattern Matching: 85-95% success rate (version-independent patterns)
+[*]L2 Learned Sites: 90%+ success rate (previously decoded crashes)
+[*]L3 Register Fixup: 70-85% success rate (redirect to safety buffer)
+[*]L4 Instruction Skip: 60-80% success rate (decode and skip)
+[*]L5 Function Return: 40-60% success rate (return to caller)
+[*]L6 Deep Stack Walk: 10-30% success rate (last resort)
+[*]Cascade events: tracks recovery chains and cascade protection triggers
+[*]Common crash sites: identifies frequently occurring crash locations
+[*]Recovery latency: measures time spent in recovery handlers
+[/list]
+
+[size=4][b]Pattern Learning[/b][/size]
+Learns from successful recoveries to improve future attempts:
+[list]
+[*]L2 cache stores up to 512 learned sites (MAX_LEARNED = 512)
+[*]Cache hit rate: 60-80% for repeat crashes at learned locations
+[*]Session-only: learned patterns are not persisted between game sessions
+[*]Thread-safe: atomic operations for concurrent access
+[*]Fast-path optimization: zero decoding overhead for cached sites
+[/list]
+
+[b]Log Files:[/b]
+[list]
+[*][font=Courier New]SkyrimCrashGuard.log[/font]: Main log with initialization, validation, and recovery attempts
+[*][font=Courier New]CrashGuard-recovery-*.log[/font]: Detailed reports for each successful recovery (crash context, root cause, involved objects)
+[*][font=Courier New]crash-*.log[/font] (CrashLogger/Trainwreck): Unrecoverable crashes that CrashGuard could not handle
+[/list]
+
+[center]✦ ═══════════════════════════════════════════════════════════ ✦[/center]
+
+[center][size=5][b]User Interface[/b][/size][/center]
+
+[b]F11 Configuration Menu[/b]
+[list]
+[*]ImGui-based interface with mouse support
+[*]Real-time performance metrics and resource monitoring
+[*]Recent Recoveries tab with crash analysis details
+[*]All settings configurable in-game
+[*]Can be disabled entirely via TOML if conflicts occur with other ImGui mods
+[/list]
+
+[b]Input Management[/b]
+[list]
+[*]Attempts to block input during menu interaction to prevent camera movement
+[*]Menu input coordination and tracking
+[*]Hotkey management for F11 toggle
+[*]Input diagnostics for troubleshooting
+[/list]
+
+[center]✦ ═══════════════════════════════════════════════════════════ ✦[/center]
+
+[center][size=5][b]Save Protection[/b][/size][/center]
+[center][b][color=#ff7700]EXPERIMENTAL - NO GUARANTEES[/color][/b][/center]
+
+[b]WARNING:[/b] When a crash is "recovered," the game continues running in a potentially corrupted state. Any saves made after a recovery may contain hidden corruption. 
+
+[list]
+[*][b]CoSave Coordination[/b]: Attempts to coordinate with cosave systems like S.L.A.C.K. when available (may not work with all cosave mods)
+[*][b]State Validation[/b]: Attempts to detect obvious corruption (cannot detect all corruption types)
+[*][b]Save/Load Monitoring[/b]: Attempts to reduce risk during save operations (cannot prevent all corruption scenarios)
+[/list]
+
+[b]Critical Limitations:[/b]
+[list]
+[*]These mechanisms [b]cannot guarantee save safety[/b]. They are best-effort only.
+[*]Recovering from a crash means continuing with potentially corrupted memory, stack, or heap state
+[*]Save corruption may not be immediately apparent and can manifest sessions later
+[*]Deep corruption (stack/heap), interrupted writes, or third-party cosave tools can bypass all protections
+[*][b]Always maintain external backups of your saves. Do not rely on this mod to protect your saves.[/b]
+[/list]
+
+[center]✦ ═══════════════════════════════════════════════════════════ ✦[/center]
+
+[center][size=5][b]CrashLogger Compatibility[/b][/size][/center]
+
+CrashGuard is designed to [b]cooperate[/b] with CrashLogger/Trainwreck, not compete with it. They work together to provide comprehensive crash coverage.
+
+[b]How It Works:[/b]
+[list]
+[*]CrashGuard's VEH (Vectored Exception Handler) runs [b]before[/b] CrashLogger's exception handler
+[*]When CrashGuard successfully recovers a crash: returns EXCEPTION_CONTINUE_EXECUTION, game keeps running, CrashLogger never sees it
+[*]When CrashGuard cannot recover (or explicitly rejects the crash): returns EXCEPTION_CONTINUE_SEARCH, allowing CrashLogger to analyze and log the unrecoverable crash
+[*]This cooperation is intentional: CrashGuard handles what it can, CrashLogger documents what it can't
+[/list]
+
+[b]Two Sets of Logs:[/b]
+[list]
+[*][font=Courier New]CrashGuard-recovery-*.log[/font]: Crashes CrashGuard successfully recovered (game continued running). These document "silent" recoveries that would have crashed the game without CrashGuard.
+[*][font=Courier New]crash-*.log[/font] (CrashLogger): Crashes CrashGuard could not recover (game crashed). These are the unrecoverable crashes: stack overflow, heap corruption, system DLL crashes, or crashes after cascade limits exceeded.
+[/list]
+
+[b]Why Use Both:[/b]
+[list]
+[*]CrashGuard attempts to keep you playing through recoverable crashes (access violations, null pointers, vtable corruption)
+[*]CrashLogger provides detailed analysis of unrecoverable crashes to help identify problematic mods
+[*]Cross-reference both logs for a complete picture of your session's stability
+[*]If you see many CrashGuard recoveries but no CrashLogger crashes: CrashGuard is working well
+[*]If you see both: CrashGuard is handling some crashes but others are too severe to recover
+[/list]
+
+[center]✦ ═══════════════════════════════════════════════════════════ ✦[/center]
+
+[center][size=5][b]Configuration[/b][/size][/center]
+
+All settings are in [font=Courier New]Data/SKSE/Plugins/SkyrimCrashGuard.toml[/font]. Key sections:
+
+[b][General][/b]: Enable/disable the mod, set log level
+[b][VEH][/b]: Vectored exception handler settings
+[b][ResourceLimiter][/b]: Actor/reference limits, auto-culling thresholds
+[b][PapyrusValidation][/b]: Native function parameter validation
+[b][UserNotifications][/b]: Control which crash severities prompt for user input
+[b][Hotkeys][/b]: Menu toggle key (default: F11)
+[b][ImGui][/b]: Set [font=Courier New]disableMenu = true[/font] to fully suppress F11 menu
+
+The F11 menu exposes many settings at runtime.
+
+[center][size=5][b]Links[/b][/size][/center]
+
+[b]Author:[/b] Parker Chace
+[b]Contact:[/b] sparkerchace@gmail.com
+[b]GitHub:[/b] [url=https://github.com/parkerchace/SkyrimCrashGuard/]Source Code & Documentation[/url]
+[b]License:[/b] MIT (Open Source)
+
+[center]✦ ═══════════════════════════════════════════════════════════ ✦[/center]
+
+[center][i]"Experimental software that attempts to keep you playing."[/i][/center]
+
+[center][size=3][b]Version 2.3.2 - March 2026[/b][/size][/center]
