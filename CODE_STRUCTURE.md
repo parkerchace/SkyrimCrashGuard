@@ -444,11 +444,6 @@ This document provides a comprehensive overview of all 133 C++ source files in t
   - **Interdependencies**: Used by UserNotificationManager for notification decisions
 
 ### Initialization
-- **DllMain.cpp** - DLL entry point
-  - **Purpose**: DLL entry point for Windows (DllMain function)
-  - **Key Functions**: `DllMain()` - DLL initialization and cleanup
-  - **Dependencies**: Windows API
-  - **Interdependencies**: Entry point for plugin loading
 
 - **main.cpp** - Plugin initialization
   - **Purpose**: SKSE plugin initialization and system startup
@@ -484,12 +479,6 @@ This document provides a comprehensive overview of all 133 C++ source files in t
   - **Key Functions**: `Initialize()` - loads Address Library; `GetAddress()` - resolves address by ID; version detection
   - **Dependencies**: Address Library for SKSE (external)
   - **Interdependencies**: Used by AddressResolver for address resolution; fallback to AddressLibraryStub if not available
-
-- **AddressLibraryStub.h** - Address Library stub for fallback
-  - **Purpose**: Stub implementation when Address Library is not available (fallback to hardcoded offsets)
-  - **Key Functions**: Stub address resolution functions
-  - **Dependencies**: None
-  - **Interdependencies**: Used by AddressLib as fallback
 
 - **AddressResolver.cpp/h** - Resolves addresses across SE/AE/VR
   - **Purpose**: Resolves game engine addresses across SE 1.5.97, AE 1.6.x, VR 1.4.15
