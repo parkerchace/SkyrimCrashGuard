@@ -10,7 +10,7 @@ set(VCPKG_TARGET_TRIPLET "x64-windows-static-md" CACHE STRING "")
 
 project(
     SkyrimCrashGuard
-    VERSION 2.3.2
+    VERSION 2.3.3
     LANGUAGES CXX
 )
 
