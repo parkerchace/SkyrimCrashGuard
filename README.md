@@ -2,7 +2,7 @@
 
 **Version 2.3.3** — Engine-Level Crash Recovery & Performance Optimization System for Skyrim SE/AE/VR
 
-An SKSE plugin that **attempts** to prevent and recover from crashes through validation utilities, resource monitoring & management, and a 7-layer exception handling system with instruction pattern matching. Made for fun using LLMs in my free-time. 
+An Experimental SKSE plugin that **attempts** to prevent and recover from crashes through validation utilities, resource monitoring & management, and a 7-layer exception handling system with instruction pattern matching. Made for fun using LLMs in my free-time. 
 
 **Status:** Again, this mod is Experimental - Use at your own risk. Always back up your saves, but no one has reported a broken save yet. It is primarily a debug tool to gather more than just one log at a time amd avoid crashes along the way. If you don't like it, don't use it. 
 
