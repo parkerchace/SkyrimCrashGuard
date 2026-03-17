@@ -513,6 +513,4 @@ Legacy per-topic docs have been archived in `docs/archive/` for reference.
 
 ---
 
-If you prefer a different structure (e.g., split docs, MCM-oriented readme, or keep shorter Quick Start at top-level), tell me which sections to expand or remove.
-
 ````
