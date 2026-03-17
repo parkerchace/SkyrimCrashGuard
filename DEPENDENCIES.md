@@ -272,8 +272,6 @@ cmake -S . -B build --fresh
 
 ## Additional Resources
 
-- **Build Verification Report**: [TASK_6.2_BUILD_DEPENDENCIES_VERIFICATION.md](TASK_6.2_BUILD_DEPENDENCIES_VERIFICATION.md)
-- **Runtime Verification Report**: [TASK_6.1_RUNTIME_DEPENDENCIES_VERIFICATION.md](TASK_6.1_RUNTIME_DEPENDENCIES_VERIFICATION.md)
 - **Credits and Attribution**: [CREDITS.md](CREDITS.md)
 - **Project README**: [../README.md](../README.md)
 
