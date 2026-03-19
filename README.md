@@ -397,11 +397,10 @@ maxLogFiles = 3             # Keep last 3 log files
 When reporting issues, include:
 1. **SkyrimCrashGuard.log** (primary log)
 2. **crash-*.log** (CrashLogger, if applicable)
-3. **CrashGuard-recovery-*.log** (recovery attempts, if applicable)
-4. **Load order** (modlist.txt or MO2 export)
-5. **Game version** (SE 1.5.97, AE 1.6.x, VR 1.4.15)
-6. **SKSE version**
-7. **Steps to reproduce** (if possible)
+3. **Load order** (modlist.txt or MO2 export)
+4. **Game version** (SE 1.5.97, AE 1.6.x, VR 1.4.15)
+5. **SKSE version**
+6. **Steps to reproduce** (if possible)
 
 **Where to find logs:**
 - All logs: `Documents\My Games\<Skyrim Version>\SKSE\`
