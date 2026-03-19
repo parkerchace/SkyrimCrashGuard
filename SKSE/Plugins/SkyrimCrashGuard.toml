@@ -23,6 +23,15 @@ menuToggleKey = "F11"
 enabled = true
 cascadeLimit = 3  # Max recovery attempts during cascade
 
+# High-frequency crash throttling
+# Reduces performance impact when mods crash repeatedly (e.g., BetterThirdPersonSelection)
+# After N crashes in X seconds, switches to silent recovery mode (still recovers, no logging)
+enableModuleThrottling = true  # Enable per-module crash frequency throttling
+moduleThrottleThreshold = 20   # Crashes before entering silent mode
+moduleThrottleWindowMs = 2000  # Tracking window in milliseconds (2 seconds)
+moduleSilentDurationMs = 30000 # Duration of silent recovery mode (30 seconds)
+moduleRelogIntervalMs = 60000  # Re-log interval while in silent mode (60 seconds)
+
 [Patches]
 # Proactive engine patches
 enabled = true
