@@ -34,6 +34,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 #include "VEH.h"
+#include "Config.h"
 #include "CrashCollector.h"
 #include "CrashLoggerDetector.h"
 #include "GameDetect.h"
@@ -473,6 +474,140 @@ static constexpr uint32_t FUNC_CASCADE_MAX = 30; // Max crashes per function blo
 static DWORD s_lastRecoveryTick = 0;
 static constexpr DWORD RECOVERY_COOLDOWN_MS = 5; // 5ms between recoveries (was 50)
 static bool s_lastRecoveryWasWriteSkip = false;  // Track if last recovery skipped a write
+
+// ═══════════════════════════════════════════════════════════════════════
+// § 3c  PER-MODULE HIGH-FREQUENCY CRASH THROTTLING
+// ═══════════════════════════════════════════════════════════════════════
+// Problem: Some mods (e.g., BetterThirdPersonSelection) can crash at extremely
+// high frequency (dozens of times per second) when they hit invalid pointers.
+// While CrashGuard successfully recovers these crashes, the logging and
+// exception handling overhead causes significant performance degradation.
+//
+// Solution: Track per-module crash frequency and switch to silent recovery mode
+// after a threshold is exceeded. Still recover crashes, but suppress logging
+// to eliminate I/O overhead. Provide summary messages so users know there's
+// an issue without spamming logs.
+
+struct ModuleThrottle {
+    std::string moduleName;      // e.g., "BetterThirdPersonSelection.dll"
+    uintptr_t lastOffset;        // Last crash offset within module
+    uint32_t crashCount;         // Crashes in current window
+    uint32_t totalSilentCount;   // Total silent recoveries
+    DWORD windowStart;           // Start of current tracking window
+    DWORD silentModeStart;       // When silent mode was activated
+    bool inSilentMode;           // Currently suppressing logs
+    bool summaryLogged;          // Already logged summary for this window
+};
+
+static constexpr size_t MODULE_THROTTLE_SLOTS = 16;
+static ModuleThrottle s_moduleThrottle[MODULE_THROTTLE_SLOTS] = {};
+
+// Check if we should suppress logging for this module+offset
+// Returns true if logging should be suppressed
+static bool CheckModuleThrottle(const std::string& moduleName, uintptr_t offset, bool& outFirstSilent) {
+    // Check if throttling is enabled
+    const auto& cfg = Config::Get();
+    if (!cfg.enableModuleThrottling) {
+        outFirstSilent = false;
+        return false;  // Throttling disabled, always log
+    }
+    
+    DWORD now = GetTickCount();
+    outFirstSilent = false;
+    
+    // Get thresholds from config
+    uint32_t threshold = static_cast<uint32_t>(cfg.moduleThrottleThreshold);
+    DWORD window = static_cast<DWORD>(cfg.moduleThrottleWindowMs);
+    DWORD silentDuration = static_cast<DWORD>(cfg.moduleSilentDurationMs);
+    DWORD relogInterval = static_cast<DWORD>(cfg.moduleRelogIntervalMs);
+    
+    // Find or create slot for this module
+    ModuleThrottle* slot = nullptr;
+    ModuleThrottle* oldestSlot = nullptr;
+    DWORD oldestTime = now;
+    
+    for (auto& s : s_moduleThrottle) {
+        if (s.moduleName == moduleName) {
+            slot = &s;
+            break;
+        }
+        if (s.moduleName.empty() || s.windowStart < oldestTime) {
+            oldestSlot = &s;
+            oldestTime = s.windowStart;
+        }
+    }
+    
+    // Create new slot if needed
+    if (!slot) {
+        slot = oldestSlot;
+        *slot = ModuleThrottle{};
+        slot->moduleName = moduleName;
+        slot->windowStart = now;
+    }
+    
+    // Check if we should exit silent mode
+    if (slot->inSilentMode) {
+        if (now - slot->silentModeStart > silentDuration) {
+            // Silent period expired - log summary and reset
+            auto log = spdlog::default_logger();
+            if (log && slot->totalSilentCount > 0) {
+                log->warn("[VEH] Module throttle: {} still crashing after {}s ({} silent recoveries), check mod compatibility",
+                          moduleName, silentDuration / 1000, slot->totalSilentCount);
+            }
+            slot->inSilentMode = false;
+            slot->crashCount = 1;
+            slot->totalSilentCount = 0;
+            slot->windowStart = now;
+            slot->summaryLogged = false;
+            return false;  // Log this one
+        }
+        
+        // Still in silent mode
+        slot->totalSilentCount++;
+        slot->lastOffset = offset;
+        
+        // Periodic re-logging while in silent mode
+        if (!slot->summaryLogged || (now - slot->silentModeStart > relogInterval)) {
+            if (now - slot->silentModeStart > relogInterval) {
+                auto log = spdlog::default_logger();
+                if (log) {
+                    log->warn("[VEH] Module throttle: {} continues crashing ({} recoveries in {}s)",
+                              moduleName, slot->totalSilentCount, (now - slot->silentModeStart) / 1000);
+                }
+                slot->silentModeStart = now;  // Reset for next interval
+            }
+            slot->summaryLogged = true;
+        }
+        
+        return true;  // Suppress logging
+    }
+    
+    // Not in silent mode - check if we should enter it
+    // Reset window if expired
+    if (now - slot->windowStart > window) {
+        slot->crashCount = 1;
+        slot->windowStart = now;
+        slot->lastOffset = offset;
+        return false;
+    }
+    
+    // Increment crash count
+    slot->crashCount++;
+    slot->lastOffset = offset;
+    
+    // Check threshold
+    if (slot->crashCount >= threshold) {
+        // Enter silent mode
+        slot->inSilentMode = true;
+        slot->silentModeStart = now;
+        slot->totalSilentCount = 0;
+        slot->summaryLogged = false;
+        outFirstSilent = true;  // Signal to log the transition message
+        return false;  // Log this transition
+    }
+    
+    return false;  // Normal logging
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 // § 4a  Save-Load Recovery Tracking
@@ -3126,9 +3261,21 @@ static LONG CALLBACK OrchestratedRecovery(PEXCEPTION_POINTERS info) {
                             ctx->Rip += instr.length;
                             recovered = true;
                             recoveryMethod = "zeroed XMM";
-                            if (log) {
+                            
+                            // Check module throttling
+                            bool firstSilent = false;
+                            std::string modName = ModName(rip);
+                            uintptr_t modOff = ModOff(rip);
+                            bool suppressLog = CheckModuleThrottle(modName, modOff, firstSilent);
+                            
+                            if (log && !suppressLog) {
                                 log->warn("[VEH] Universal Recovery: {}+{:#X} READ AV -> zeroed XMM{}, skip {} bytes",
-                                          ModName(rip), ModOff(rip), destReg - ZYDIS_REGISTER_XMM0, instr.length);
+                                          modName, modOff, destReg - ZYDIS_REGISTER_XMM0, instr.length);
+                            }
+                            if (firstSilent && log) {
+                                const auto& cfg = Config::Get();
+                                log->warn("[VEH] High-frequency crash detected: {} crashed {} times in {}s, suppressing logs for {}s",
+                                          modName, cfg.moduleThrottleThreshold, cfg.moduleThrottleWindowMs / 1000, cfg.moduleSilentDurationMs / 1000);
                             }
                         }
                         // Handle GP register destination (mov, movzx, etc.)
@@ -3139,9 +3286,21 @@ static LONG CALLBACK OrchestratedRecovery(PEXCEPTION_POINTERS info) {
                                 ctx->Rip += instr.length;
                                 recovered = true;
                                 recoveryMethod = "zeroed register";
-                                if (log) {
+                                
+                                // Check module throttling
+                                bool firstSilent = false;
+                                std::string modName = ModName(rip);
+                                uintptr_t modOff = ModOff(rip);
+                                bool suppressLog = CheckModuleThrottle(modName, modOff, firstSilent);
+                                
+                                if (log && !suppressLog) {
                                     log->warn("[VEH] Universal Recovery: {}+{:#X} READ AV -> zeroed reg, skip {} bytes",
-                                              ModName(rip), ModOff(rip), instr.length);
+                                              modName, modOff, instr.length);
+                                }
+                                if (firstSilent && log) {
+                                    const auto& cfg = Config::Get();
+                                    log->warn("[VEH] High-frequency crash detected: {} crashed {} times in {}s, suppressing logs for {}s",
+                                              modName, cfg.moduleThrottleThreshold, cfg.moduleThrottleWindowMs / 1000, cfg.moduleSilentDurationMs / 1000);
                                 }
                             }
                         }
@@ -3150,9 +3309,21 @@ static LONG CALLBACK OrchestratedRecovery(PEXCEPTION_POINTERS info) {
                             if (L5_FuncReturn(ctx)) {
                                 recovered = true;
                                 recoveryMethod = "function return";
-                                if (log) {
+                                
+                                // Check module throttling
+                                bool firstSilent = false;
+                                std::string modName = ModName(rip);
+                                uintptr_t modOff = ModOff(rip);
+                                bool suppressLog = CheckModuleThrottle(modName, modOff, firstSilent);
+                                
+                                if (log && !suppressLog) {
                                     log->warn("[VEH] Universal Recovery: {}+{:#X} READ AV -> function return",
-                                              ModName(rip), ModOff(rip));
+                                              modName, modOff);
+                                }
+                                if (firstSilent && log) {
+                                    const auto& cfg = Config::Get();
+                                    log->warn("[VEH] High-frequency crash detected: {} crashed {} times in {}s, suppressing logs for {}s",
+                                              modName, cfg.moduleThrottleThreshold, cfg.moduleThrottleWindowMs / 1000, cfg.moduleSilentDurationMs / 1000);
                                 }
                             }
                         }
@@ -3167,9 +3338,21 @@ static LONG CALLBACK OrchestratedRecovery(PEXCEPTION_POINTERS info) {
                             if (L5_FuncReturn(ctx)) {
                                 recovered = true;
                                 recoveryMethod = "function return (system DLL)";
-                                if (log) {
+                                
+                                // Check module throttling
+                                bool firstSilent = false;
+                                std::string modName = ModName(rip);
+                                uintptr_t modOff = ModOff(rip);
+                                bool suppressLog = CheckModuleThrottle(modName, modOff, firstSilent);
+                                
+                                if (log && !suppressLog) {
                                     log->warn("[VEH] Universal Recovery: {}+{:#X} WRITE AV (system DLL) -> function return",
-                                              ModName(rip), ModOff(rip));
+                                              modName, modOff);
+                                }
+                                if (firstSilent && log) {
+                                    const auto& cfg = Config::Get();
+                                    log->warn("[VEH] High-frequency crash detected: {} crashed {} times in {}s, suppressing logs for {}s",
+                                              modName, cfg.moduleThrottleThreshold, cfg.moduleThrottleWindowMs / 1000, cfg.moduleSilentDurationMs / 1000);
                                 }
                             }
                         } else {
@@ -3177,9 +3360,21 @@ static LONG CALLBACK OrchestratedRecovery(PEXCEPTION_POINTERS info) {
                             ctx->Rip += instr.length;
                             recovered = true;
                             recoveryMethod = "skipped write";
-                            if (log) {
+                            
+                            // Check module throttling
+                            bool firstSilent = false;
+                            std::string modName = ModName(rip);
+                            uintptr_t modOff = ModOff(rip);
+                            bool suppressLog = CheckModuleThrottle(modName, modOff, firstSilent);
+                            
+                            if (log && !suppressLog) {
                                 log->warn("[VEH] Universal Recovery: {}+{:#X} WRITE AV -> skip {} bytes",
-                                          ModName(rip), ModOff(rip), instr.length);
+                                          modName, modOff, instr.length);
+                            }
+                            if (firstSilent && log) {
+                                const auto& cfg = Config::Get();
+                                log->warn("[VEH] High-frequency crash detected: {} crashed {} times in {}s, suppressing logs for {}s",
+                                          modName, cfg.moduleThrottleThreshold, cfg.moduleThrottleWindowMs / 1000, cfg.moduleSilentDurationMs / 1000);
                             }
                         }
                     }
