@@ -45,6 +45,13 @@ namespace Config {
             // [VEH]
             s_settings.vehEnabled = GetValue(config, "VEH", "enabled", true);
             s_settings.cascadeLimit = GetValue(config, "VEH", "cascadeLimit", 3);
+            
+            // High-frequency crash throttling
+            s_settings.enableModuleThrottling = GetValue(config, "VEH", "enableModuleThrottling", true);
+            s_settings.moduleThrottleThreshold = GetValue(config, "VEH", "moduleThrottleThreshold", 20);
+            s_settings.moduleThrottleWindowMs = GetValue(config, "VEH", "moduleThrottleWindowMs", 2000);
+            s_settings.moduleSilentDurationMs = GetValue(config, "VEH", "moduleSilentDurationMs", 30000);
+            s_settings.moduleRelogIntervalMs = GetValue(config, "VEH", "moduleRelogIntervalMs", 60000);
 
             // [Patches]
             s_settings.patchesEnabled = GetValue(config, "Patches", "enabled", true);
@@ -264,6 +271,14 @@ namespace Config {
             ofs << "[VEH]\n";
             ofs << "enabled = " << (s_settings.vehEnabled ? "true" : "false") << "\n";
             ofs << "cascadeLimit = " << s_settings.cascadeLimit << "  # Max recovery attempts during cascade\n\n";
+            
+            ofs << "# High-frequency crash throttling\n";
+            ofs << "# Reduces performance impact when mods crash repeatedly (e.g., BetterThirdPersonSelection)\n";
+            ofs << "enableModuleThrottling = " << (s_settings.enableModuleThrottling ? "true" : "false") << "  # Enable per-module crash frequency throttling\n";
+            ofs << "moduleThrottleThreshold = " << s_settings.moduleThrottleThreshold << "  # Crashes before entering silent mode\n";
+            ofs << "moduleThrottleWindowMs = " << s_settings.moduleThrottleWindowMs << "  # Tracking window in milliseconds\n";
+            ofs << "moduleSilentDurationMs = " << s_settings.moduleSilentDurationMs << "  # Duration of silent recovery mode\n";
+            ofs << "moduleRelogIntervalMs = " << s_settings.moduleRelogIntervalMs << "  # Re-log interval while in silent mode\n\n";
 
             ofs << "[Patches]\n";
             ofs << "enabled = " << (s_settings.patchesEnabled ? "true" : "false") << "\n\n";
