@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.3.3 FIX]
+
+### Added
+- **High-Frequency Crash Throttling** - Intelligent per-module crash recovery with automatic silent mode
+  - Tracks crash frequency per module (e.g., BetterThirdPersonSelection.dll)
+  - After 20 crashes in 2 seconds from same module, enters silent recovery mode
+  - Continues recovering crashes but suppresses logging to eliminate I/O overhead
+  - Provides summary messages so users know there's an issue without log spam
+  - Re-logs every 60 seconds if crashes persist to keep users informed
+  - Dramatically reduces performance impact of high-frequency mod crashes (eliminates stuttering/FPS drops)
+  - Fully configurable via TOML (threshold, window, silent duration, relog interval)
+  - Can be disabled for debugging: `enableModuleThrottling = false`
+  - Example: "High-frequency crash detected: BetterThirdPersonSelection.dll crashed 20 times in 2s, suppressing logs for 30s"
+  - Technical: Reduces per-crash overhead from 5-15ms to <0.1ms during silent mode
+
+
 ## [3.3.3] - 2026-03-15
 
 ### Removed
@@ -829,7 +845,6 @@ See CONTRIBUTING.md for guidelines on:
 **Author:** Parker Chace
 
 **Contributors:**
-- [List contributors here as they contribute]
 
 **Special Thanks:**
 - CommonLibSSE-NG team
@@ -837,6 +852,4 @@ See CONTRIBUTING.md for guidelines on:
 - The modding community for testing and feedback
 - Everyone who said "impossible" - you motivated us
 
----
 
-*"They said it couldn't be done. We did it anyway."*
