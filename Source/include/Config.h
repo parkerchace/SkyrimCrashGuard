@@ -21,6 +21,13 @@ namespace Config {
         // [VEH]
         bool        vehEnabled    = true;
         int         cascadeLimit  = 3;     // Max recovery attempts during cascade
+        
+        // High-frequency crash throttling
+        bool        enableModuleThrottling = true;  // Enable per-module crash frequency throttling
+        int         moduleThrottleThreshold = 20;   // Crashes before entering silent mode
+        int         moduleThrottleWindowMs = 2000;  // Tracking window in milliseconds
+        int         moduleSilentDurationMs = 30000; // Duration of silent recovery mode
+        int         moduleRelogIntervalMs = 60000;  // Re-log interval while in silent mode
 
         // [Patches]
         bool        patchesEnabled = true;
