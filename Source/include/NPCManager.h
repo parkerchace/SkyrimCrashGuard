@@ -23,12 +23,28 @@ namespace CrashGuard {
 class NPCManager {
 public:
     struct DisabledNPC {
-        RE::Actor* actor = nullptr;
+        RE::ActorHandle actorHandle;  // SAFETY: Use handle instead of raw pointer
         RE::TESObjectCELL* cell = nullptr;
         std::string name;
         uint32_t formID = 0;
         float disabledTime = 0.0f;
         int burden = 0; // Complexity score
+        
+        // Helper to safely get actor pointer with validation
+        RE::Actor* GetActor() const {
+            auto actorPtr = actorHandle.get();
+            if (!actorPtr) return nullptr;
+            auto actor = actorPtr.get();
+            if (!actor || actor->IsDeleted() || actor->IsMarkedForDeletion()) {
+                return nullptr;
+            }
+            return actor;
+        }
+        
+        // Check if this cached reference is still valid
+        bool IsValid() const {
+            return GetActor() != nullptr;
+        }
     };
     
     struct CellBaseline {
@@ -104,6 +120,12 @@ private:
     void InstallSpawnHooks();
     uint32_t GetEffectiveThresholdInternal() const;  // Internal version without mutex lock
     
+    // SAFETY FEATURES: Validation helpers to prevent use-after-free
+    bool IsValidActorPointer(RE::Actor* actor);
+    bool IsValidVTable(RE::Actor* actor);
+    void InvalidateCachedActors();
+    void ValidateDisabledNPCs();  // Periodic validation of cached actors
+    
     // PlaceAtMe hook (DISABLED - causes stack alignment crashes)
     // Kept for potential future implementation with different hooking method
     static RE::TESObjectREFR* PlaceAtMe_Hook(
@@ -124,6 +146,8 @@ private:
     
     float m_timeSinceLastUpdate = 0.0f;
     float m_updateInterval = 0.5f;  // Check every 0.5 seconds (was 2.0s) for faster response
+    float m_timeSinceLastValidation = 0.0f;  // SAFETY: Track validation timing
+    float m_validationInterval = 5.0f;  // SAFETY: Validate cached actors every 5 seconds
     
     mutable std::mutex m_mutex;
     std::vector<DisabledNPC> m_disabledNPCs;
