@@ -213,6 +213,22 @@ namespace PhaseTracking {
                     spdlog::info("║  STATUS: Save loaded successfully                           ║");
                     spdlog::info("╚══════════════════════════════════════════════════════════════╝");
                     spdlog::info("[GAMEPLAY] Monitoring active (silent mode - only logging issues)");
+                    
+                    // FIX: Force keyboard/mouse input enabled after save load
+                    // Skyrim has a bug where it loads saves with ignoreKeyboardMouse=true (gamepad mode)
+                    // even when the player is using keyboard/mouse. This causes input to not work.
+                    auto controlMap = RE::ControlMap::GetSingleton();
+                    if (controlMap) {
+                        bool wasIgnoring = controlMap->ignoreKeyboardMouse;
+                        spdlog::info("[PhaseDetection] ControlMap.ignoreKeyboardMouse after save load: {}", wasIgnoring);
+                        
+                        if (wasIgnoring) {
+                            // Force enable keyboard/mouse input
+                            controlMap->ignoreKeyboardMouse = false;
+                            spdlog::info("[PhaseDetection] FIX APPLIED: Forced keyboard/mouse input enabled (was disabled)");
+                            spdlog::info("[PhaseDetection] This fixes Skyrim engine bug where saves load in gamepad mode");
+                        }
+                    }
                 }
                 break;
                 
