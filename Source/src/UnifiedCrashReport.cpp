@@ -311,7 +311,7 @@ SystemInfo ReportManager::GatherSystemInfo() {
         skseVersion.major(), skseVersion.minor(), skseVersion.patch());
     
     // CrashGuard version from Config
-    info.crashGuardVersion = "2.3.2";
+    info.crashGuardVersion = "2.3.4";
     
     // Get Windows version using RtlGetVersion
     OSVERSIONINFOEXW osInfo = {};
