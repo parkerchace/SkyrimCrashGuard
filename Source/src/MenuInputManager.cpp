@@ -94,15 +94,21 @@ namespace CrashGuard {
 
         try {
             // CommonLibSSE-NG: Direct member access (no GetRuntimeData())
-            // === CRITICAL: Restore original input mode state ===
-            // This ensures gamepad mode is re-enabled if it was active before menu opened.
-            // Preserves the user's input mode preference (Requirement 4.2).
-            controlMap->ignoreKeyboardMouse = m_wasIgnoringKeyboardMouse;
+            // === FIX: Always restore to keyboard/mouse enabled (false) ===
+            // The original code was restoring m_wasIgnoringKeyboardMouse, but this caused
+            // a bug where if the game was incorrectly in gamepad mode (ignoreKeyboardMouse=true)
+            // when the menu opened, closing the menu would restore that broken state,
+            // leaving the player unable to use WASD/Escape.
+            //
+            // Solution: Always set ignoreKeyboardMouse = false when closing the menu.
+            // This ensures keyboard/mouse input is always enabled after menu closes.
+            // If the user is actually using a gamepad, Skyrim will automatically switch
+            // back to gamepad mode on the next gamepad input.
+            controlMap->ignoreKeyboardMouse = false;
             
             m_menuInputActive = false;
             
-            spdlog::info("[MenuInputManager] Game input restored (ignoring KB/M: {})", 
-                m_wasIgnoringKeyboardMouse);
+            spdlog::info("[MenuInputManager] Game input restored (ignoring KB/M: false - always enable KB/M)");
             
             // Log final state
             InputDiagnostics::LogControlMapState();
