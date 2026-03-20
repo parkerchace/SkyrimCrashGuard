@@ -2,9 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
-## [3.3.3 FIX]
+## [2.3.4] - 2026-03-20
+
+### Fixed
+- **F11 Menu Input Blocking Bug** - Fixed keyboard/mouse input (WASD/Escape) not working after closing F11 menu
+  - Root cause: Game was in gamepad mode (`ignoreKeyboardMouse = true`) when menu opened
+  - When menu closed, it restored the original broken state, blocking keyboard/mouse input
+  - Fix: Always set `ignoreKeyboardMouse = false` when closing menu to ensure keyboard/mouse input is enabled
+  - If user is actually using gamepad, Skyrim will automatically switch back on next gamepad input
+  - Modified `MenuInputManager::RestoreGameInput()` to force keyboard/mouse enabled state
+  - Resolves issue where players couldn't move or access menus after using F11 menu
+
+## [2.3.3] - 2026-03-17
 
 ### Added
+- **NPC Manager Safety Features** - Comprehensive use-after-free prevention for NPCManager
+  - Replaced raw `RE::Actor*` pointers with `RE::ActorHandle` to prevent dangling pointers
+  - Added re-fetch and validation before every actor access
+  - Added null checks everywhere actors are accessed
+  - Added try-catch blocks around all actor operations
+  - Added VTable validation to detect corrupted actor objects
+  - Added cache clearing on cell change events
+  - Added periodic validation every 5 seconds to detect stale handles
+  - Prevents crashes from actors being deleted/moved while NPCManager holds references
+  - Resolves crash at `0x021200000000` (execute-AV from corrupted function pointer)
+
+### Added (continued from Unreleased)
 - **High-Frequency Crash Throttling** - Intelligent per-module crash recovery with automatic silent mode
   - Tracks crash frequency per module (e.g., BetterThirdPersonSelection.dll)
   - After 20 crashes in 2 seconds from same module, enters silent recovery mode
@@ -16,23 +39,7 @@ All notable changes to this project will be documented in this file.
   - Can be disabled for debugging: `enableModuleThrottling = false`
   - Example: "High-frequency crash detected: BetterThirdPersonSelection.dll crashed 20 times in 2s, suppressing logs for 30s"
   - Technical: Reduces per-crash overhead from 5-15ms to <0.1ms during silent mode
-
-
-## [3.3.3] - 2026-03-15
-
-### Removed
-- **Address Library Stub System** - Removed fake address library generation code that was causing compatibility issues
-  - Deleted DllMain.cpp and its stub address library creation logic
-  - Removed AddressLibraryStub.h header file
-  - Removed EnsureAddressLibraryStub() function from AddressLib.h
-  - Removed stub initialization call from main.cpp
-  - Plugin now requires real Address Library for SKSE (SE/AE/VR) to be installed
-  - Fixes issue where fake address library files would break other mods
-
-### Technical Notes
-- The stub system was creating empty address library .bin files that would interfere with other SKSE plugins
-- Real Address Library is required for hook functions to work properly
-- This change improves compatibility with other mods and follows standard SKSE plugin practices
+  - See docs/HIGH_FREQUENCY_CRASH_THROTTLING.md for full documentation
 
 ## [2.3.2] - 2026-03-15
 
@@ -845,6 +852,7 @@ See CONTRIBUTING.md for guidelines on:
 **Author:** Parker Chace
 
 **Contributors:**
+- [List contributors here as they contribute]
 
 **Special Thanks:**
 - CommonLibSSE-NG team
@@ -852,4 +860,6 @@ See CONTRIBUTING.md for guidelines on:
 - The modding community for testing and feedback
 - Everyone who said "impossible" - you motivated us
 
+---
 
+*"They said it couldn't be done. We did it anyway."*
