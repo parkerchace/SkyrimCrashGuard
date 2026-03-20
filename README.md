@@ -1,10 +1,10 @@
 # Skyrim Crash Guard
 
-**Version 2.3.3** — Engine-Level Crash Recovery & Performance Optimization System for Skyrim SE/AE/VR
+**Version 2.3.4** — Engine-Level Crash Recovery & Performance Optimization System for Skyrim SE/AE/VR
 
-An Experimental SKSE plugin that **attempts** to prevent and recover from crashes through validation utilities, resource monitoring & management, and a 7-layer exception handling system with instruction pattern matching. Made for fun using LLMs in my free-time. 
+An SKSE plugin that **attempts** to prevent and recover from crashes through validation utilities, resource monitoring & management, and a 7-layer exception handling system with instruction pattern matching.
 
-**Status:** Again, this mod is Experimental - Use at your own risk. Always back up your saves, but no one has reported a broken save yet. It is primarily a debug tool to gather more than just one log at a time amd avoid crashes along the way. If you don't like it, don't use it. 
+**Status:** Experimental - Use at your own risk. Always back up your saves.
 
 **IMPORTANT:** This mod does NOT guarantee crash prevention or save protection. Recovery success varies with crash type, load order, and system configuration. Some crashes cannot be recovered. We recommend using alongside CrashLogger/Trainwreck for comprehensive crash analysis.
 
@@ -397,10 +397,11 @@ maxLogFiles = 3             # Keep last 3 log files
 When reporting issues, include:
 1. **SkyrimCrashGuard.log** (primary log)
 2. **crash-*.log** (CrashLogger, if applicable)
-3. **Load order** (modlist.txt or MO2 export)
-4. **Game version** (SE 1.5.97, AE 1.6.x, VR 1.4.15)
-5. **SKSE version**
-6. **Steps to reproduce** (if possible)
+3. **CrashGuard-recovery-*.log** (recovery attempts, if applicable)
+4. **Load order** (modlist.txt or MO2 export)
+5. **Game version** (SE 1.5.97, AE 1.6.x, VR 1.4.15)
+6. **SKSE version**
+7. **Steps to reproduce** (if possible)
 
 **Where to find logs:**
 - All logs: `Documents\My Games\<Skyrim Version>\SKSE\`
@@ -511,5 +512,7 @@ Full changelog: `CHANGELOG.md` (root).
 Legacy per-topic docs have been archived in `docs/archive/` for reference.
 
 ---
+
+If you prefer a different structure (e.g., split docs, MCM-oriented readme, or keep shorter Quick Start at top-level), tell me which sections to expand or remove.
 
 ````
