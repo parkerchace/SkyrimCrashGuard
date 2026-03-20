@@ -54,6 +54,13 @@ void NPCManager::Update(float deltaTime) {
         }
     }
     
+    // SAFETY FEATURE 7: Periodic validation of cached actors (every 5 seconds)
+    m_timeSinceLastValidation += deltaTime;
+    if (m_timeSinceLastValidation >= m_validationInterval) {
+        m_timeSinceLastValidation = 0.0f;
+        ValidateDisabledNPCs();
+    }
+    
     // CRITICAL: Check NPC count EVERY frame for emergency situations
     // This catches massive spawns (like 2000 NPCs) before they crash
     CountNPCs();
@@ -374,9 +381,11 @@ void NPCManager::RemoveExcessNPCs(uint32_t excessCount) {
                     // Delete oldest disabled NPC to make room
                     if (!m_disabledNPCs.empty()) {
                         auto& oldest = m_disabledNPCs.front();
-                        if (oldest.actor && !oldest.actor->IsDeleted()) {
+                        // SAFETY: Use handle to get actor safely
+                        auto oldestActor = oldest.GetActor();
+                        if (oldestActor && !oldestActor->IsDeleted()) {
                             try {
-                                oldest.actor->SetDelete(true);
+                                oldestActor->SetDelete(true);
                             } catch (...) {
                                 spdlog::warn("[NPCManager] Failed to delete oldest disabled NPC");
                             }
@@ -386,7 +395,8 @@ void NPCManager::RemoveExcessNPCs(uint32_t excessCount) {
                 }
                 
                 DisabledNPC disabledNPC;
-                disabledNPC.actor = actor;
+                // SAFETY FEATURE 2: Use ActorHandle instead of raw pointer
+                disabledNPC.actorHandle = actor->GetHandle();
                 disabledNPC.cell = actor->GetParentCell();
                 disabledNPC.name = name ? name : "Unknown";
                 disabledNPC.formID = actor->GetFormID();
@@ -483,72 +493,95 @@ void NPCManager::RestoreDisabledNPCs(uint32_t count) {
         try {
             auto& disabledNPC = *it;
             
-            // Check if actor is still valid
-            if (!disabledNPC.actor || disabledNPC.actor->IsDeleted() || disabledNPC.actor->IsMarkedForDeletion()) {
-                spdlog::debug("[NPCManager] Disabled NPC no longer valid, removing from list");
+            // SAFETY FEATURE 2+3: Use ActorHandle and re-fetch/validate before use
+            auto actor = disabledNPC.GetActor();
+            
+            // SAFETY FEATURE 4: Null check
+            if (!actor) {
+                spdlog::debug("[NPCManager] Disabled NPC no longer valid (handle invalid), removing from list: {}", 
+                             disabledNPC.name);
                 it = m_disabledNPCs.erase(it);
                 continue;
             }
             
-            // Additional safety: check if actor has valid 3D
-            if (!disabledNPC.actor->Get3D()) {
-                spdlog::debug("[NPCManager] Disabled NPC has no 3D, skipping: {}", disabledNPC.name);
-                ++it;
+            // SAFETY FEATURE 6: Validate vtable before calling methods
+            if (!IsValidVTable(actor)) {
+                spdlog::warn("[NPCManager] Disabled NPC has corrupted vtable, removing: {}", disabledNPC.name);
+                it = m_disabledNPCs.erase(it);
                 continue;
             }
             
-            // Check if NPC is in player's field of view (skip if visible for immersion)
-            if (config.restoreBehindPlayer && playerAngle != 0.0f) {
-                try {
-                    auto npcPos = disabledNPC.actor->GetPosition();
-                    
-                    // Calculate vector from player to NPC
-                    float toNpcX = npcPos.x - playerPos.x;
-                    float toNpcY = npcPos.y - playerPos.y;
-                    float distance = std::sqrt(toNpcX * toNpcX + toNpcY * toNpcY);
-                    
-                    if (distance > 10.0f) { // Only check FOV if NPC is not too close
-                        // Normalize the vector
-                        toNpcX /= distance;
-                        toNpcY /= distance;
-                        
-                        // Calculate dot product with view direction
-                        float dotProduct = (viewDirX * toNpcX) + (viewDirY * toNpcY);
-                        
-                        // If dot product > 0.5, NPC is in front of player (within ~120 degree FOV)
-                        // Skip this NPC and try the next one
-                        if (dotProduct > 0.5f) {
-                            spdlog::debug("[NPCManager] Skipping {} - in player's view (dot: {:.2f})", 
-                                         disabledNPC.name, dotProduct);
-                            ++it;
-                            continue;
-                        }
-                    }
-                } catch (const std::exception& e) {
-                    spdlog::warn("[NPCManager] Failed to check FOV for {}: {}", disabledNPC.name, e.what());
-                    // Continue with restoration anyway
-                } catch (...) {
-                    spdlog::warn("[NPCManager] Failed to check FOV for {}: unknown error", disabledNPC.name);
-                    // Continue with restoration anyway
+            // SAFETY FEATURE 5: Wrap all operations in try-catch
+            try {
+                // Additional safety: check if actor has valid 3D
+                if (!actor->Get3D()) {
+                    spdlog::debug("[NPCManager] Disabled NPC has no 3D, skipping: {}", disabledNPC.name);
+                    ++it;
+                    continue;
                 }
+                
+                // Check if NPC is in player's field of view (skip if visible for immersion)
+                if (config.restoreBehindPlayer && playerAngle != 0.0f) {
+                    try {
+                        auto npcPos = actor->GetPosition();
+                        
+                        // Calculate vector from player to NPC
+                        float toNpcX = npcPos.x - playerPos.x;
+                        float toNpcY = npcPos.y - playerPos.y;
+                        float distance = std::sqrt(toNpcX * toNpcX + toNpcY * toNpcY);
+                        
+                        if (distance > 10.0f) { // Only check FOV if NPC is not too close
+                            // Normalize the vector
+                            toNpcX /= distance;
+                            toNpcY /= distance;
+                            
+                            // Calculate dot product with view direction
+                            float dotProduct = (viewDirX * toNpcX) + (viewDirY * toNpcY);
+                            
+                            // If dot product > 0.5, NPC is in front of player (within ~120 degree FOV)
+                            // Skip this NPC and try the next one
+                            if (dotProduct > 0.5f) {
+                                spdlog::debug("[NPCManager] Skipping {} - in player's view (dot: {:.2f})", 
+                                             disabledNPC.name, dotProduct);
+                                ++it;
+                                continue;
+                            }
+                        }
+                    } catch (const std::exception& e) {
+                        spdlog::warn("[NPCManager] Failed to check FOV for {}: {}", disabledNPC.name, e.what());
+                        // Continue with restoration anyway
+                    } catch (...) {
+                        spdlog::warn("[NPCManager] Failed to check FOV for {}: unknown error", disabledNPC.name);
+                        // Continue with restoration anyway
+                    }
+                }
+                
+                // NPC is behind player or FOV check is disabled - restore it
+                // Note: We can't call Enable() directly, but removing from disabled list
+                // allows the game to naturally process the actor again
+                
+                spdlog::info("[NPCManager] Restoring {} (behind player or out of view)", disabledNPC.name);
+                
+                restored++;
+                m_restoredNPCs++;
+                
+                it = m_disabledNPCs.erase(it);
+                
+            } catch (const std::exception& e) {
+                spdlog::warn("[NPCManager] Failed to restore disabled NPC {}: {}", disabledNPC.name, e.what());
+                // Remove the problematic entry
+                it = m_disabledNPCs.erase(it);
+            } catch (...) {
+                spdlog::warn("[NPCManager] Failed to restore disabled NPC {}: unknown error", disabledNPC.name);
+                // Remove the problematic entry
+                it = m_disabledNPCs.erase(it);
             }
             
-            // NPC is behind player or FOV check is disabled - restore it
-            // Note: We can't call Enable() directly, but removing from disabled list
-            // allows the game to naturally process the actor again
-            
-            spdlog::info("[NPCManager] Restoring {} (behind player or out of view)", disabledNPC.name);
-            
-            restored++;
-            m_restoredNPCs++;
-            
-            it = m_disabledNPCs.erase(it);
-            
         } catch (const std::exception& e) {
-            spdlog::warn("[NPCManager] Failed to restore disabled NPC: {}", e.what());
+            spdlog::warn("[NPCManager] Failed to process disabled NPC: {}", e.what());
             ++it;
         } catch (...) {
-            spdlog::warn("[NPCManager] Failed to restore disabled NPC: unknown error");
+            spdlog::warn("[NPCManager] Failed to process disabled NPC: unknown error");
             ++it;
         }
     }
@@ -643,15 +676,23 @@ void NPCManager::CleanupDeadBodies() {
     
     // Remove the bodies with enhanced safety checks
     for (auto* actor : bodiesToRemove) {
+        // SAFETY FEATURE 5: Wrap all operations in try-catch
         try {
-            // Triple-check the actor is still valid before removal
+            // SAFETY FEATURE 4: Triple-check the actor is still valid before removal
             if (!actor) {
                 spdlog::debug("[NPCManager] Actor became null during cleanup");
                 continue;
             }
             
-            if (actor->IsDeleted() || actor->IsMarkedForDeletion()) {
-                spdlog::debug("[NPCManager] Actor became deleted during cleanup");
+            // SAFETY FEATURE 3: Re-validate before use
+            if (!IsValidActorPointer(actor)) {
+                spdlog::debug("[NPCManager] Actor became invalid during cleanup");
+                continue;
+            }
+            
+            // SAFETY FEATURE 6: Validate vtable
+            if (!IsValidVTable(actor)) {
+                spdlog::warn("[NPCManager] Actor has corrupted vtable during cleanup");
                 continue;
             }
             
@@ -689,134 +730,164 @@ void NPCManager::CleanupDeadBodies() {
 }
 
 bool NPCManager::IsWhitelistedNPC(RE::Actor* actor) {
+    // SAFETY FEATURE 4: Null check
     if (!actor) return false;
     
-    const auto& config = Config::Get();
-    if (config.npcWhitelistKeywords.empty()) return false;
-    
-    auto base = actor->GetActorBase();
-    if (!base) return false;
-    
-    const char* name = base->GetName();
-    if (!name || strlen(name) == 0) return false;
-    
-    std::string actorName(name);
-    
-    // Parse whitelist keywords (comma-separated)
-    std::stringstream ss(config.npcWhitelistKeywords);
-    std::string keyword;
-    
-    while (std::getline(ss, keyword, ',')) {
-        // Trim whitespace
-        keyword.erase(0, keyword.find_first_not_of(" \t"));
-        keyword.erase(keyword.find_last_not_of(" \t") + 1);
+    // SAFETY FEATURE 5: Wrap in try-catch
+    try {
+        const auto& config = Config::Get();
+        if (config.npcWhitelistKeywords.empty()) return false;
         
-        if (!keyword.empty() && actorName.find(keyword) != std::string::npos) {
-            return true;
+        auto base = actor->GetActorBase();
+        if (!base) return false;
+        
+        const char* name = base->GetName();
+        if (!name || strlen(name) == 0) return false;
+        
+        std::string actorName(name);
+        
+        // Parse whitelist keywords (comma-separated)
+        std::stringstream ss(config.npcWhitelistKeywords);
+        std::string keyword;
+        
+        while (std::getline(ss, keyword, ',')) {
+            // Trim whitespace
+            keyword.erase(0, keyword.find_first_not_of(" \t"));
+            keyword.erase(keyword.find_last_not_of(" \t") + 1);
+            
+            if (!keyword.empty() && actorName.find(keyword) != std::string::npos) {
+                return true;
+            }
         }
+        
+        return false;
+        
+    } catch (...) {
+        return false;
     }
-    
-    return false;
 }
 
 bool NPCManager::IsBlacklistedNPC(RE::Actor* actor) {
+    // SAFETY FEATURE 4: Null check
     if (!actor) return false;
     
-    const auto& config = Config::Get();
-    if (config.npcBlacklistKeywords.empty()) return false;
-    
-    auto base = actor->GetActorBase();
-    if (!base) return false;
-    
-    const char* name = base->GetName();
-    if (!name || strlen(name) == 0) return false;
-    
-    std::string actorName(name);
-    
-    // Parse blacklist keywords (comma-separated)
-    std::stringstream ss(config.npcBlacklistKeywords);
-    std::string keyword;
-    
-    while (std::getline(ss, keyword, ',')) {
-        // Trim whitespace
-        keyword.erase(0, keyword.find_first_not_of(" \t"));
-        keyword.erase(keyword.find_last_not_of(" \t") + 1);
+    // SAFETY FEATURE 5: Wrap in try-catch
+    try {
+        const auto& config = Config::Get();
+        if (config.npcBlacklistKeywords.empty()) return false;
         
-        if (!keyword.empty() && actorName.find(keyword) != std::string::npos) {
-            return true;
+        auto base = actor->GetActorBase();
+        if (!base) return false;
+        
+        const char* name = base->GetName();
+        if (!name || strlen(name) == 0) return false;
+        
+        std::string actorName(name);
+        
+        // Parse blacklist keywords (comma-separated)
+        std::stringstream ss(config.npcBlacklistKeywords);
+        std::string keyword;
+        
+        while (std::getline(ss, keyword, ',')) {
+            // Trim whitespace
+            keyword.erase(0, keyword.find_first_not_of(" \t"));
+            keyword.erase(keyword.find_last_not_of(" \t") + 1);
+            
+            if (!keyword.empty() && actorName.find(keyword) != std::string::npos) {
+                return true;
+            }
         }
+        
+        return false;
+        
+    } catch (...) {
+        return false;
     }
-    
-    return false;
 }
 
 int NPCManager::CalculateNPCBurden(RE::Actor* actor) {
+    // SAFETY FEATURE 4: Null check
     if (!actor) return 0;
     
-    const auto& config = Config::Get();
-    int burden = 0;
-    
-    // Base burden
-    burden += 10;
-    
-    // Dead actors are less burdensome (handled by corpse cleanup)
-    if (actor->IsDead()) {
-        burden -= 5;
-    }
-    
-    // Actors in combat are more burdensome (expensive AI)
-    if (actor->IsInCombat()) {
-        burden += config.burdenInCombat;
-    }
-    
-    // Actors with AI packages are more burdensome
-    auto currentPackage = actor->GetCurrentPackage();
-    if (currentPackage) {
-        burden += config.burdenComplexAI;
-    }
-    
-    // Actors with magic effects are more burdensome (simplified check)
-    auto magicTarget = actor->GetMagicTarget();
-    if (magicTarget) {
-        burden += config.burdenHasMagicEffects;
-    }
-    
-    // Actors with 3D loaded are more burdensome (rendering cost)
-    if (actor->Is3DLoaded()) {
-        burden += 10;
-    }
-    
-    // Check if this is a duplicate NPC (2nd+ instance of same base)
-    auto actorBase = actor->GetActorBase();
-    if (actorBase) {
-        uint32_t baseFormID = actorBase->GetFormID();
+    // SAFETY FEATURE 5: Wrap in try-catch
+    try {
+        // SAFETY FEATURE 3: Validate before use
+        if (!IsValidActorPointer(actor)) {
+            return 0;
+        }
         
-        // Count how many instances of this base exist
-        auto processLists = RE::ProcessLists::GetSingleton();
-        if (processLists) {
-            int instanceCount = 0;
-            for (auto& handle : processLists->highActorHandles) {
-                auto otherPtr = handle.get();
-                if (otherPtr) {
-                    auto other = otherPtr.get();
-                    if (other && other->GetActorBase()) {
-                        if (other->GetActorBase()->GetFormID() == baseFormID) {
-                            instanceCount++;
-                            // If this is the 2nd+ instance, it's a duplicate
-                            if (instanceCount > 1 && other == actor) {
-                                burden += config.burdenDuplicate;
-                                spdlog::debug("[NPCManager] Detected duplicate: {} (instance #{})", 
-                                             actor->GetName(), instanceCount);
-                                break;
+        const auto& config = Config::Get();
+        int burden = 0;
+        
+        // Base burden
+        burden += 10;
+        
+        // Dead actors are less burdensome (handled by corpse cleanup)
+        if (actor->IsDead()) {
+            burden -= 5;
+        }
+        
+        // Actors in combat are more burdensome (expensive AI)
+        if (actor->IsInCombat()) {
+            burden += config.burdenInCombat;
+        }
+        
+        // Actors with AI packages are more burdensome
+        auto currentPackage = actor->GetCurrentPackage();
+        if (currentPackage) {
+            burden += config.burdenComplexAI;
+        }
+        
+        // Actors with magic effects are more burdensome (simplified check)
+        auto magicTarget = actor->GetMagicTarget();
+        if (magicTarget) {
+            burden += config.burdenHasMagicEffects;
+        }
+        
+        // Actors with 3D loaded are more burdensome
+        if (actor->Is3DLoaded()) {
+            burden += 10;
+        }
+        
+        // Check if this is a duplicate NPC (2nd+ instance of same base)
+        auto actorBase = actor->GetActorBase();
+        if (actorBase) {
+            uint32_t baseFormID = actorBase->GetFormID();
+            
+            // Count how many instances of this base exist
+            auto processLists = RE::ProcessLists::GetSingleton();
+            if (processLists) {
+                int instanceCount = 0;
+                for (auto& handle : processLists->highActorHandles) {
+                    auto otherPtr = handle.get();
+                    if (otherPtr) {
+                        auto other = otherPtr.get();
+                        if (other && other->GetActorBase()) {
+                            if (other->GetActorBase()->GetFormID() == baseFormID) {
+                                instanceCount++;
+                                // If this is the 2nd+ instance, it's a duplicate
+                                if (instanceCount > 1 && other == actor) {
+                                    burden += config.burdenDuplicate;
+                                    spdlog::debug("[NPCManager] Detected duplicate: {} (instance #{})", 
+                                                 actor->GetName(), instanceCount);
+                                    break;
+                                }
                             }
                         }
                     }
                 }
             }
         }
+        
+        return burden;
+        
+    } catch (const std::exception& e) {
+        spdlog::warn("[NPCManager] Failed to calculate burden: {}", e.what());
+        return 0;
+    } catch (...) {
+        spdlog::warn("[NPCManager] Failed to calculate burden: unknown error");
+        return 0;
     }
-    
-    return burden;
 }
 
 void NPCManager::LearnCellBaseline() {
@@ -825,6 +896,12 @@ void NPCManager::LearnCellBaseline() {
     
     auto currentCell = player->GetParentCell();
     if (!currentCell || currentCell == m_currentCell) return;
+    
+    // SAFETY FEATURE 7: Clear cached actors when cell changes
+    if (m_currentCell != nullptr) {
+        spdlog::info("[NPCManager] Cell changed - invalidating cached actors");
+        InvalidateCachedActors();
+    }
     
     m_currentCell = currentCell;
     
@@ -968,6 +1045,94 @@ void NPCManager::InstallSpawnHooks() {
     // 1. Hook the console command handler (safer than PlaceAtMe)
     // 2. Use a detours library instead of SKSE trampolines
     // 3. Hook at a call site instead of function entry
+}
+
+// ============================================================================
+// SAFETY FEATURES: Prevent use-after-free crashes with actor pointers
+// ============================================================================
+
+bool NPCManager::IsValidActorPointer(RE::Actor* actor) {
+    if (!actor) return false;
+    
+    try {
+        // Check if actor is deleted or being deleted
+        if (actor->IsDeleted() || actor->IsMarkedForDeletion()) {
+            return false;
+        }
+        
+        // Check if actor has valid form data
+        if (!actor->GetFormID() || actor->GetFormID() == 0) {
+            return false;
+        }
+        
+        // Check if actor base is valid
+        auto actorBase = actor->GetActorBase();
+        if (!actorBase) {
+            return false;
+        }
+        
+        return true;
+    } catch (...) {
+        // Any exception means the pointer is invalid
+        return false;
+    }
+}
+
+bool NPCManager::IsValidVTable(RE::Actor* actor) {
+    if (!actor) return false;
+    
+    try {
+        // Try to access vtable by calling a simple virtual method
+        // If vtable is corrupted, this will crash or throw
+        auto formType = actor->GetFormType();
+        
+        // Actor form type should be kACHR (0x3E)
+        if (formType != RE::FormType::ActorCharacter) {
+            spdlog::warn("[NPCManager] Invalid form type for actor: {}", static_cast<int>(formType));
+            return false;
+        }
+        
+        return true;
+    } catch (...) {
+        spdlog::warn("[NPCManager] VTable validation failed - corrupted pointer");
+        return false;
+    }
+}
+
+void NPCManager::InvalidateCachedActors() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    spdlog::info("[NPCManager] Invalidating cached actors due to cell change");
+    
+    // Clear all disabled NPCs - they may no longer be valid after cell change
+    if (!m_disabledNPCs.empty()) {
+        spdlog::info("[NPCManager] Clearing {} disabled NPCs", m_disabledNPCs.size());
+        m_disabledNPCs.clear();
+    }
+}
+
+void NPCManager::ValidateDisabledNPCs() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    if (m_disabledNPCs.empty()) return;
+    
+    auto it = m_disabledNPCs.begin();
+    uint32_t removed = 0;
+    
+    while (it != m_disabledNPCs.end()) {
+        // Check if the handle is still valid
+        if (!it->IsValid()) {
+            spdlog::debug("[NPCManager] Removing invalid cached actor: {}", it->name);
+            it = m_disabledNPCs.erase(it);
+            removed++;
+        } else {
+            ++it;
+        }
+    }
+    
+    if (removed > 0) {
+        spdlog::info("[NPCManager] Validated disabled NPCs: removed {} stale entries", removed);
+    }
 }
 
 }  // namespace CrashGuard
