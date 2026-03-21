@@ -22,55 +22,24 @@ namespace CrashGuard {
             return;
         }
         
-        // Block player controls directly
-        auto playerControls = RE::PlayerControls::GetSingleton();
-        if (playerControls) {
-            // Block movement and looking
-            auto movementHandler = playerControls->movementHandler;
-            auto lookHandler = playerControls->lookHandler;
-            
-            if (blocked) {
-                if (movementHandler) {
-                    movementHandler->inputEventHandlingEnabled = false;
-                }
-                if (lookHandler) {
-                    lookHandler->inputEventHandlingEnabled = false;
-                }
-            } else {
-                if (movementHandler) {
-                    movementHandler->inputEventHandlingEnabled = true;
-                }
-                if (lookHandler) {
-                    lookHandler->inputEventHandlingEnabled = true;
-                }
-            }
-        }
+        // COMPATIBILITY FIX: Do NOT block player controls directly
+        // This was interfering with SkyrimSoulsRE and other mods that modify input events
+        // Instead, only block keyboard/mouse input to prevent conflicts with F11 menu
         
-        // Block UI input processing
+        // Block UI input processing (keyboard/mouse only)
         auto controlMap = RE::ControlMap::GetSingleton();
         if (controlMap) {
             try {
                 if (blocked) {
-                    // Disable input processing for all menus
-                    // This prevents gamepad from controlling game menus while F11 menu is open
-                    // CommonLibSSE-NG: Direct member access (no GetRuntimeData())
+                    // Only disable keyboard/mouse input processing for F11 menu
+                    // Do NOT touch movement/look handlers or ToggleControls
+                    // This allows SkyrimSoulsRE and other mods to continue working
                     controlMap->ignoreKeyboardMouse = true;
-                    controlMap->ignoreActivateDisabledEvents = true;
-                    
-                    // Aggressively disable ALL control types to prevent gamepad from controlling game
-                    using UEFlag = RE::UserEvents::USER_EVENT_FLAG;
-                    controlMap->ToggleControls(UEFlag::kAll, false);
-                    spdlog::debug("[InputBlocker] All controls blocked for F11 menu");
+                    spdlog::debug("[InputBlocker] Keyboard/mouse input blocked for F11 menu (SkyrimSoulsRE compatible)");
                 } else {
-                    // Re-enable input processing
-                    // CommonLibSSE-NG: Direct member access (no GetRuntimeData())
+                    // Re-enable keyboard/mouse input processing
                     controlMap->ignoreKeyboardMouse = false;
-                    controlMap->ignoreActivateDisabledEvents = false;
-                    
-                    // Re-enable all controls
-                    using UEFlag = RE::UserEvents::USER_EVENT_FLAG;
-                    controlMap->ToggleControls(UEFlag::kAll, true);
-                    spdlog::debug("[InputBlocker] All controls unblocked");
+                    spdlog::debug("[InputBlocker] Keyboard/mouse input unblocked");
                 }
             } catch (const std::exception& e) {
                 spdlog::error("[InputBlocker] Failed to access ControlMap data: {}", e.what());
