@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 ## [2.3.4] - 2026-03-20
 
 ### Fixed
+- **Save Load Input Blocking Bug** - Investigating keyboard/mouse input not working after loading saves
+  - Root cause: Skyrim engine bug loads ALL saves with `ignoreKeyboardMouse = true` (gamepad mode)
+  - This affects saves loaded from menu, console commands (`load`), and failed load attempts
+  - Fix attempt: Automatically force `ignoreKeyboardMouse = false` after every save load
+  - Status: Fix is being applied (confirmed in logs) but input still doesn't work
+  - Hypothesis: Something is resetting `ignoreKeyboardMouse` back to `true` after our fix runs
+  - Enhanced logging added to track when and why `ignoreKeyboardMouse` changes value
+  - Investigating timing issues and potential conflicts with other systems
+  
 - **F11 Menu Input Blocking Bug** - Fixed keyboard/mouse input (WASD/Escape) not working after closing F11 menu
   - Root cause: Game was in gamepad mode (`ignoreKeyboardMouse = true`) when menu opened
   - When menu closed, it restored the original broken state, blocking keyboard/mouse input
