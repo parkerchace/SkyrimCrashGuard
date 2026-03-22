@@ -10,7 +10,7 @@ set(VCPKG_TARGET_TRIPLET "x64-windows-static-md" CACHE STRING "")
 
 project(
     SkyrimCrashGuard
-    VERSION 2.3.3
+    VERSION 2.3.5
     LANGUAGES CXX
 )
 
@@ -54,7 +54,6 @@ configure_file(
 )
 
 set(PLUGIN_SOURCES
-    src/DllMain.cpp
     src/PCH.cpp
     src/main.cpp
     src/GameDetect.cpp
@@ -105,7 +104,6 @@ set(PLUGIN_SOURCES
     src/LockFreeStructures.cpp
     src/RecoveryNotifications.cpp
     src/RecoveryStatistics.cpp
-    src/NPCManager.cpp
     src/MemoryPressureDetector.cpp
     src/CrosshairObserver.cpp
     src/MenuInputObserver.cpp
@@ -165,7 +163,6 @@ set(PLUGIN_HEADERS
     include/LockFreeStructures.h
     include/RecoveryNotifications.h
     include/RecoveryStatistics.h
-    include/NPCManager.h
     include/MemoryPressureDetector.h
     include/SeverityAnalyzer.h
     include/NotificationThresholdManager.h

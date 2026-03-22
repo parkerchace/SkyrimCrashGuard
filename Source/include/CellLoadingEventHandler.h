@@ -10,7 +10,6 @@
 #pragma once
 
 #include "CellManager.h"
-#include "NPCManager.h"
 #include <RE/Skyrim.h>
 #include <spdlog/spdlog.h>
 
@@ -90,10 +89,6 @@ namespace CrashGuard {
             }
             
             m_cellsProcessed++;
-            
-            // Trigger NPC count audit on cell load (main thread safe)
-            // This updates the NPC count when new cells are loaded
-            NPCManager::GetSingleton().ForceAudit();
             
             return RE::BSEventNotifyControl::kContinue;
         }

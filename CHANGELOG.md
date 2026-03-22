@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.5] - 2026-03-22
+
+### Removed
+- **NPC Manager System** - Removed entire NPC management subsystem to refocus on core crash prevention mission
+  - Deleted NPCManager.cpp and NPCManager.h source files
+  - Removed NPC Tools tab from F11 menu
+  - Removed all NPC counting, spawn prevention, and dead body cleanup features
+  - Removed NPC-related configuration options from TOML
+  - NPC management will be released as a separate standalone mod in the future
+  
+### Changed
+- **Focused Mission** - Mod now exclusively focused on crash prevention and recovery
+  - Simplified codebase by removing non-crash-prevention features
+  - Reduced complexity and potential compatibility issues
+  - Cleaner separation of concerns
+
+### Technical Notes
+- This change reduces the plugin size and removes code that was outside the core crash prevention scope
+- Users who relied on NPC management features should watch for the upcoming standalone NPC manager mod
+
 ## [3.3.3 FIX]
 
 ### Added

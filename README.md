@@ -174,12 +174,6 @@ These systems both monitor AND actively intervene:
   - **Does NOT free memory:** Tracks resources but actual memory management is handled by game engine
   - **Limitation:** Despite the name, this is primarily a monitoring system
   
-- **NPC Manager** (ACTIVE INTERVENTION):
-  - **Monitors:** NPC counts, burden scores, cell baselines
-  - **Manages:** Actively deletes/disables excess NPCs when threshold exceeded (default: 50 max)
-  - **Emergency mode:** Ultra-fast deletion at 2x threshold (100+ NPCs)
-  - **Limitation:** Reactive deletion only (PlaceAtMe hook disabled due to stability issues)
-  
 - **Script Monitor**:
   - **Monitors:** Script execution, timeouts, failures
   - **Manages:** Blacklists problematic scripts, blocks execution, terminates runaway scripts
@@ -190,7 +184,7 @@ These systems both monitor AND actively intervene:
   - **Manages:** Breaks detected deadlocks by releasing oldest locks
   - **Note:** Actively intervenes to prevent thread deadlocks
 
-**Key Distinction:** Only NPCManager actively removes game objects. Memory tracking does NOT free memory—it only monitors and warns.
+**Key Distinction:** Memory tracking does NOT free memory—it only monitors and warns. The game engine handles actual memory management.
 
 ---
 
@@ -231,14 +225,6 @@ NotifyOnCritical = true     # Always ask user for save-affecting crashes
 NotifyOnFatal = true        # Always ask user for unrecoverable crashes
 ShowToastForAutoRecovery = true    # Show brief notification for auto-recoveries
 DialogTimeoutSeconds = 30   # Auto-select after timeout
-```
-
-**[NPCManagement]** (Performance Management)
-```toml
-autoManageNPCs = true       # Enable automatic NPC management
-usePerCellBaseline = true   # Learn normal NPC count per cell (adapts to modded cities)
-cellNPCDelta = 20           # How many NPCs above baseline to allow
-disableInsteadOfDelete = true  # Disable NPCs instead of deleting (allows restoration)
 ```
 
 **[InputConflictPrevention]** (Menu Scrolling Fix)
@@ -338,14 +324,12 @@ maxLogFiles = 3             # Keep last 3 log files
 **High Memory Usage / Performance Issues**
 - **Symptom:** Game stutters, high RAM usage, FPS drops
 - **Check:**
-  1. Open F11 menu → Performance tab
+  1. Open F11 menu → Resource Monitor tab
   2. Check memory pressure level (Normal/Elevated/High/Critical)
-  3. Check NPC count (if > 50, NPCManager should activate)
-  4. Review `[NPCManagement]` settings in TOML
+  3. Review memory usage and system resources
 - **Solution:**
-  - Lower `cellNPCDelta` (default: 20) to be more aggressive
   - Enable `[EngineOptimizations]` features for LOD management
-  - Check for mods that spawn excessive NPCs (PlaceAtMe abuse)
+  - Check for mods that spawn excessive objects or use heavy scripts
 
 **Script Errors / Papyrus Issues**
 - **Symptom:** Script errors in Papyrus log, mod features not working
@@ -436,7 +420,6 @@ CrashGuard **attempts** to recover these crash types (success varies):
 
 ### Resource Management Limitations
 - **Memory Manager:** Tracks memory but does NOT free it (game engine handles actual freeing)
-- **NPC Manager:** Reactive deletion only (PlaceAtMe hook disabled due to stability issues)
 - **Script Monitor:** Limited VM integration, some features are stubbed
 
 ### Save Protection

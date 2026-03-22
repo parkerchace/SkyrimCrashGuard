@@ -18,7 +18,6 @@
 #include "MemoryPressureDetector.h"
 #include "CrashLoggerDetector.h"
 #include "StateManager.h"
-#include "NPCManager.h"
 #include "Plugin.h"
 #include <imgui.h>
 #include <spdlog/spdlog.h>
@@ -240,18 +239,6 @@ namespace CrashGuard {
                     // Use child window with proper sizing to leave room for bottom buttons
                     ImGui::BeginChild("ResourceMonitorContent", ImVec2(0, -60), false);
                     RenderResourceMonitorTab();
-                    ImGui::EndChild();
-                    
-                    ImGui::EndTabItem();
-                }
-
-                if (ImGui::BeginTabItem("NPC Tools", nullptr, m_activeTab == Tab::NPCTools ? flags : 0)) {
-                    m_activeTab = Tab::NPCTools;
-                    m_forceTabSwitch = false;
-                    
-                    // Use child window with proper sizing to leave room for bottom buttons
-                    ImGui::BeginChild("NPCToolsContent", ImVec2(0, -60), false);
-                    RenderNPCToolsTab();
                     ImGui::EndChild();
                     
                     ImGui::EndTabItem();
@@ -1282,112 +1269,6 @@ namespace CrashGuard {
         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Remember to click 'Save to TOML' to persist changes!");
     }
 
-    void ImGuiConfigMenu::RenderNPCToolsTab() {
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "NPC Tools & Actor Management");
-        ImGui::Separator();
-        ImGui::Spacing();
-        
-        ImGui::TextWrapped("Simple NPC management: prevents spawning over threshold and cleans up dead bodies.");
-        ImGui::Spacing();
-        ImGui::Spacing();
-
-        auto& config = Config::GetMutable();
-        auto& npcMgr = NPCManager::GetSingleton();
-        
-        // Get current stats
-        auto stats = npcMgr.GetStats();
-        uint32_t maxActors = config.maxActors > 0 ? static_cast<uint32_t>(config.maxActors) : 1u;
-        float usage = static_cast<float>(stats.activeNPCs) / static_cast<float>(maxActors);
-        
-        // Status display - larger and more prominent
-        ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Current Status");
-        ImGui::Spacing();
-        
-        ImGui::Text("Active NPCs:");
-        ImGui::SameLine(150);
-        ImGui::Text("%u / %u", stats.activeNPCs, maxActors);
-        
-        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, 
-            usage > 0.9f ? ImVec4(1.0f, 0.3f, 0.3f, 1.0f) : 
-            usage > 0.75f ? ImVec4(1.0f, 0.8f, 0.2f, 1.0f) : 
-            ImVec4(0.2f, 1.0f, 0.2f, 1.0f));
-        ImGui::ProgressBar(usage, ImVec2(-1, 30), "");
-        ImGui::PopStyleColor();
-        
-        // Color code the usage
-        if (usage > 0.9f) {
-            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "WARNING: Near limit!");
-        } else if (usage > 0.75f) {
-            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Approaching limit");
-        } else {
-            ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "Normal");
-        }
-        
-        ImGui::Spacing();
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
-
-        // Settings in collapsible section
-        if (ImGui::CollapsingHeader("NPC Management Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::Indent();
-            ImGui::Spacing();
-            
-            ImGui::Text("Max NPCs Threshold:");
-            ImGui::SetNextItemWidth(400);
-            int actorLimit = config.maxActors;
-            if (ImGui::SliderInt("##NPCLimit", &actorLimit, 50, 2000)) {
-                config.maxActors = actorLimit;
-            }
-            ImGui::TextDisabled("Prevents new NPCs from spawning when this limit is reached");
-
-            ImGui::Spacing();
-            ImGui::Spacing();
-            
-            if (ImGui::Checkbox("Auto-manage NPCs", &config.autoManageNPCs)) {
-                // persisted on Save
-            }
-            ImGui::TextDisabled("Automatically clean up dead bodies when near limit");
-            
-            ImGui::Spacing();
-            
-            if (ImGui::Checkbox("Show toast notifications", &config.npcToolsToasts)) {
-                // persisted on Save
-            }
-            ImGui::TextDisabled("Show notifications when NPCs are prevented from spawning");
-            
-            ImGui::Unindent();
-        }
-        
-        ImGui::Spacing();
-        
-        // Manual actions
-        if (ImGui::CollapsingHeader("Manual Actions")) {
-            ImGui::Indent();
-            ImGui::Spacing();
-            
-            ImGui::TextWrapped("Use these buttons to manually manage NPCs in the current area.");
-            ImGui::Spacing();
-            
-            if (ImGui::Button("Clean Up Dead Bodies", ImVec2(250, 35))) {
-                npcMgr.CleanupDeadBodies();
-            }
-            ImGui::TextDisabled("Remove dead NPC bodies from the current cell");
-            
-            ImGui::Spacing();
-            
-            if (ImGui::Button("Force Audit", ImVec2(250, 35))) {
-                npcMgr.ForceAudit();
-            }
-            ImGui::TextDisabled("Recount active NPCs and update statistics");
-            
-            ImGui::Unindent();
-        }
-    }
-
-    
-
-
     // Small helper popup for editing marker cost (Nanite override)
     void ImGuiConfigMenu::RenderDebugMarkerCostPopups() {
         // This function is intentionally empty here; popup handling is done inline
@@ -1802,20 +1683,6 @@ namespace CrashGuard {
             
             ImGui::EndTable();
         }
-        
-        ImGui::Spacing();
-        ImGui::Spacing();
-        
-        auto& npcMgr = NPCManager::GetSingleton();
-        npcMgr.ForceAudit();
-        auto stats = npcMgr.GetStats();
-        uint32_t currentActors = stats.activeNPCs;
-        uint32_t maxActors = Config::Get().maxActors > 0 ? static_cast<uint32_t>(Config::Get().maxActors) : 0u;
-        float actorUsage = (maxActors > 0) ? (static_cast<float>(currentActors) / maxActors * 100.0f) : 0.0f;
-
-        ImGui::Text("Active Actors:");
-        ImGui::SameLine(200);
-        ImGui::Text("%u / %u (%.1f%%)", currentActors, maxActors, actorUsage);
         
         ImGui::Spacing();
         ImGui::Spacing();

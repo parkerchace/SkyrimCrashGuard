@@ -47,7 +47,6 @@
 #include "PresentHook.h"
 // ResourceLimiter and ActorLODManager are disabled during refactor; headers retained in backups.
 #include "MemoryPressureDetector.h"
-#include "NPCManager.h"
 #include "DeadlockDetector.h"
 
 namespace {
@@ -214,7 +213,6 @@ namespace {
             if (log) log->info("[PhaseDetection] Save loaded - transitioning to Gameplay");
             PhaseTracking::PhaseTracker::TransitionTo(PhaseTracking::GamePhase::Gameplay);
             PhaseTracking::PhaseTracker::StartHealthChecks();
-            CrashGuard::NPCManager::GetSingleton().ForceAudit();
             // Start ActorLOD scheduler now that gameplay is active. This
             // defers background ActorLOD work until the game is ready
             // to avoid interfering with main menu/load screens.
@@ -348,16 +346,6 @@ namespace {
         CrashGuard::MemoryPressureDetector::GetSingleton().Initialize();
         if (log) log->info("Memory pressure detector initialized");
 
-        // ── Initialize actor budget manager ──
-        // Uses RDR2/Cyberpunk-style resource management:
-        // - Never blocks spawns (that causes corruption)
-        // Initialize NPC Manager - simple threshold-based spawn prevention
-        // - Counts active NPCs
-        // - Prevents spawning when over threshold
-        // - Cleans up non-essential dead bodies
-        CrashGuard::NPCManager::GetSingleton().Initialize();
-        if (log) log->info("NPC manager initialized (threshold-based spawn prevention)");
-
         // ── Actor LOD manager initialization intentionally disabled
         // ActorLOD sources are preserved under docs/backups but the in-game
         // Actor LOD subsystem is disabled to remove F11 menu clutter while
@@ -486,11 +474,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     }
     
     // Ensure address library stubs / bundled files are prepared before REL/CommonLibSSE uses them
-    try {
-        AddressLib::EnsureAddressLibraryStub();
-    } catch (...) {
-        if (auto l = spdlog::default_logger()) l->warn("AddressLib::EnsureAddressLibraryStub threw an exception");
-    }
+    // Note: EnsureAddressLibraryStub removed - address library is now managed by vcpkg
 
     // Allocate trampoline space for hooks (1KB should be plenty)
     SKSE::AllocTrampoline(1 << 10);

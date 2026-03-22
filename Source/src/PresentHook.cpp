@@ -16,17 +16,7 @@
 #include "PerformanceMetrics.h"
 #include "RecoveryNotifications.h"
 #include "MemoryPressureDetector.h"
-#include "NPCManager.h"
 #include "PhaseTracker.h"
-#include <imgui.h>
-#include <spdlog/spdlog.h>
-#include <SKSE/SKSE.h>
-#include <Windows.h>
-#include <chrono>
-#include <d3d11.h>
-#include <dxgi.h>
-
-#include "NPCManager.h"
 
 namespace CrashGuard {
 
@@ -91,36 +81,6 @@ namespace CrashGuard {
         if (initialized) {
             HotkeyManager::GetSingleton().Update();
         }
-
-        // Periodically schedule main-thread NPC manager updates.
-        // Present runs every frame on the render thread; we enqueue a task
-        // to run on the main thread via SKSE's TaskInterface to safely
-        // call `NPCManager::Update()` (which accesses game state).
-        static auto s_lastBudgetUpdate = std::chrono::steady_clock::now();
-        auto s_nowBudget = std::chrono::steady_clock::now();
-        auto s_dtBudget = std::chrono::duration_cast<std::chrono::milliseconds>(s_nowBudget - s_lastBudgetUpdate).count();
-
-        // Update every 500ms
-        int intervalMs = 500;
-
-        if (s_dtBudget >= intervalMs) {
-            s_lastBudgetUpdate = s_nowBudget;
-            float deltaSeconds = static_cast<float>(s_dtBudget) / 1000.0f;
-            try {
-                auto task = [deltaSeconds]() {
-                    try {
-                        CrashGuard::NPCManager::GetSingleton().Update(deltaSeconds);
-                    } catch (...) {}
-                };
-                SKSE::GetTaskInterface()->AddTask(task);
-            } catch (...) {
-                // If task interface not available, fall back to no-op (safe)
-            }
-        }
-
-        // ActorLOD updates must run on the main thread. Scheduling from the
-        // render thread caused freezes on some configurations; restore
-        // responsible scheduling later via a main-thread timer or task.
 
         bool menuVisible = ImGuiConfigMenu::GetSingleton().IsVisible();
         

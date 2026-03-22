@@ -9,7 +9,6 @@
 #include "Config.h"
 #include "PerformanceMetrics.h"
 // #include "DebugVisualization.h"  // Temporarily disabled - missing file
-#include "NPCManager.h"
 
 namespace CrashGuard {
     class ImGuiConfigMenu {
@@ -30,7 +29,6 @@ namespace CrashGuard {
             Overview,           // System status, integrations, quick stats
             Settings,           // Core toggles
             ResourceMonitor,    // Resource management + memory pressure
-            NPCTools,           // Consolidated NPC/actor management
             CrashHistory,       // Recent recoveries
             Performance,        // Metrics + overlay settings
             Advanced,           // All TOML config
@@ -99,7 +97,6 @@ namespace CrashGuard {
         void RenderHotkeysTab();
         void RenderStatisticsTab();
         void RenderResourceManagementTab();
-        void RenderNPCToolsTab();
         void RenderRecentRecoveriesTab();
         void RenderNotificationArea();
         void RenderPerformanceOverlay();
