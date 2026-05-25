@@ -39,6 +39,17 @@ namespace RootCauseAnalysis {
         bool targetCellLoaded;
     };
 
+    /// Interior cell lighting crash information
+    struct InteriorCellLightingInfo {
+        bool isInteriorCellLightingCrash;
+        std::string cellName;
+        std::string lightingSystemType;  // e.g., "BSShadowFrustumLight", "Lighting", "Shadows"
+        bool isShadowRelated;
+        bool isParticleLightingRelated;
+        std::vector<std::string> involvedLightMods;
+        std::string suggestedRecoveryAction;
+    };
+
     /// Root cause analysis result
     struct RootCauseResult {
         CrashCategory category;
@@ -47,6 +58,7 @@ namespace RootCauseAnalysis {
         std::vector<std::string> suggestedFixes;
         float confidence;
         GridBoundaryInfo gridBoundaryInfo;
+        InteriorCellLightingInfo interiorCellLightingInfo;
     };
 
     /// Main root cause analyzer class
@@ -101,6 +113,13 @@ namespace RootCauseAnalysis {
 
         /// Check if crash is grid boundary related
         static bool IsGridBoundaryCrash(const VEH::CrashContext& context);
+
+        /// Check if crash is interior cell lighting related
+        static bool IsInteriorCellLightingCrash(const VEH::CrashContext& context);
+
+        /// Detect interior cell lighting crash details
+        static InteriorCellLightingInfo DetectInteriorCellLightingCrash(
+            const VEH::CrashContext& context);
 
         /// Analyze call stack for signature patterns
         static std::string AnalyzeCallStackSignature(

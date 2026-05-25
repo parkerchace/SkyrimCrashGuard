@@ -79,6 +79,16 @@ static const SignaturePattern s_signatures[] = {
     { "GridCellArray", CrashCategory::Cell, "Grid cell management" },
     { "LoadedAreaBound", CrashCategory::Cell, "Cell boundary management" },
     
+    // Interior cell lighting signatures (Visentinel crash patterns)
+    { "BSShadowFrustumLight", CrashCategory::Cell, "Interior shadow frustum lighting" },
+    { "BSLightingShaderProperty", CrashCategory::Cell, "Interior lighting shader" },
+    { "NiPointLight", CrashCategory::Cell, "Interior point light rendering" },
+    { "NiDirectionalLight", CrashCategory::Cell, "Interior directional lighting" },
+    { "BSShaderAccumulator", CrashCategory::Cell, "Interior shader accumulation" },
+    { "TESWaterReflections", CrashCategory::Cell, "Interior water reflection lighting" },
+    { "NiParticleSystem", CrashCategory::Cell, "Interior particle lighting (fire/effects)" },
+    { "BSEffectShader", CrashCategory::Cell, "Interior effect shader rendering" },
+    
     // Memory signatures
     { "malloc", CrashCategory::Memory, "Memory allocation" },
     { "ScrapHeap", CrashCategory::Memory, "Game heap allocation" },
@@ -226,6 +236,104 @@ bool RootCauseAnalyzer::IsGridBoundaryCrash(const VEH::CrashContext& context) {
     }
     
     return false;
+}
+
+bool RootCauseAnalyzer::IsInteriorCellLightingCrash(const VEH::CrashContext& context) {
+    // Interior cell lighting crashes involve shadow/lighting systems + null pointer in cell context
+    
+    // Must be an access violation (null pointer dereference)
+    if (context.exceptionCode != EXCEPTION_ACCESS_VIOLATION) {
+        return false;
+    }
+    
+    // Check for interior cell lighting signatures in call stack
+    bool hasLightingSignature = false;
+    bool hasInteriorContext = false;
+    
+    for (const auto& frame : context.callStack) {
+        // Lighting system signatures
+        if (frame.functionName.find("BSShadowFrustumLight") != std::string::npos ||
+            frame.functionName.find("BSLightingShaderProperty") != std::string::npos ||
+            frame.functionName.find("NiPointLight") != std::string::npos ||
+            frame.functionName.find("NiDirectionalLight") != std::string::npos ||
+            frame.functionName.find("BSShaderAccumulator") != std::string::npos ||
+            frame.functionName.find("TESWaterReflections") != std::string::npos ||
+            frame.functionName.find("NiParticleSystem") != std::string::npos ||
+            frame.functionName.find("BSEffectShader") != std::string::npos) {
+            hasLightingSignature = true;
+        }
+        
+        // Interior cell context indicators
+        if (frame.functionName.find("TESObjectCELL") != std::string::npos ||
+            frame.functionName.find("Load3D") != std::string::npos ||
+            frame.functionName.find("InitLighting") != std::string::npos ||
+            frame.functionName.find("SetActive") != std::string::npos ||
+            frame.moduleName.find("hdtSMP64.dll") != std::string::npos) {  // Common interior mod
+            hasInteriorContext = true;
+        }
+    }
+    
+    // If we have a lighting signature and cell context, it's likely an interior lighting crash
+    if (hasLightingSignature) {
+        return true;  // Lighting crash detected even without explicit interior context
+    }
+    
+    return false;
+}
+
+InteriorCellLightingInfo RootCauseAnalyzer::DetectInteriorCellLightingCrash(
+    const VEH::CrashContext& context) {
+    
+    InteriorCellLightingInfo info{};
+    info.isInteriorCellLightingCrash = false;
+    info.isShadowRelated = false;
+    info.isParticleLightingRelated = false;
+    
+    // First check if this looks like an interior cell lighting crash
+    if (!IsInteriorCellLightingCrash(context)) {
+        return info;
+    }
+    
+    info.isInteriorCellLightingCrash = true;
+    
+    // Analyze call stack to determine lighting subsystem
+    for (const auto& frame : context.callStack) {
+        if (frame.functionName.find("BSShadowFrustumLight") != std::string::npos) {
+            info.lightingSystemType = "BSShadowFrustumLight";
+            info.isShadowRelated = true;
+            info.suggestedRecoveryAction = "NOP shadow frustum flag test";
+            break;
+        }
+        if (frame.functionName.find("BSShaderAccumulator") != std::string::npos) {
+            info.lightingSystemType = "BSShaderAccumulator";
+            info.isShadowRelated = true;
+            info.suggestedRecoveryAction = "Skip shader accumulation";
+            break;
+        }
+        if (frame.functionName.find("NiParticleSystem") != std::string::npos) {
+            info.lightingSystemType = "NiParticleSystem";
+            info.isParticleLightingRelated = true;
+            info.suggestedRecoveryAction = "Disable particle lighting update";
+            break;
+        }
+        if (frame.functionName.find("TESWaterReflections") != std::string::npos) {
+            info.lightingSystemType = "TESWaterReflections";
+            info.isShadowRelated = true;
+            info.suggestedRecoveryAction = "Disable water reflection updates";
+            break;
+        }
+    }
+    
+    // If no specific system identified, make educated guess from crash address
+    if (info.lightingSystemType.empty()) {
+        if (context.exceptionCode == EXCEPTION_ACCESS_VIOLATION &&
+            reinterpret_cast<uintptr_t>(context.crashAddress) < 0x10000) {
+            info.lightingSystemType = "Generic null pointer in lighting";
+            info.suggestedRecoveryAction = "Skip instruction at crash site";
+        }
+    }
+    
+    return info;
 }
 
 std::string RootCauseAnalyzer::AnalyzeCallStackSignature(
@@ -380,6 +488,11 @@ CrashCategory RootCauseAnalyzer::ClassifyCrash(const VEH::CrashContext& context)
     // Grid boundary crashes are specific and should be checked first
     if (IsGridBoundaryCrash(context)) {
         return CrashCategory::GridBoundary;
+    }
+    
+    // Interior cell lighting crashes are specific and should be checked early
+    if (IsInteriorCellLightingCrash(context)) {
+        return CrashCategory::Cell;  // Categorized as Cell, but with lighting-specific details
     }
     
     // Check for specific crash types
@@ -590,9 +703,36 @@ std::vector<std::string> RootCauseAnalyzer::GenerateSuggestedFixes(
         break;
         
     case CrashCategory::Cell:
-        fixes.push_back("Verify cell edits are not conflicting");
-        fixes.push_back("Check for missing cell dependencies");
-        fixes.push_back("Rebuild cell precombines if using mods that edit cells");
+        // Check for interior cell lighting crashes first
+        if (result.interiorCellLightingInfo.isInteriorCellLightingCrash) {
+            fixes.push_back("Interior cell lighting crash detected: " + 
+                          result.interiorCellLightingInfo.lightingSystemType);
+            fixes.push_back("Recovery action: " + 
+                          result.interiorCellLightingInfo.suggestedRecoveryAction);
+            
+            if (result.interiorCellLightingInfo.isShadowRelated) {
+                fixes.push_back("Shadow system issue - try disabling shadow mods temporarily");
+                fixes.push_back("Check for BSShadowFrustumLight or lighting mod conflicts");
+                fixes.push_back("Update graphics/lighting mods to latest versions");
+                fixes.push_back("Verify ENB or ReShade compatibility with interior cells");
+            }
+            
+            if (result.interiorCellLightingInfo.isParticleLightingRelated) {
+                fixes.push_back("Particle lighting issue - check fire/effect shader mods");
+                fixes.push_back("Disable ENB particle effects in interior cells");
+                fixes.push_back("Verify particle light mods are compatible with your install");
+            }
+            
+            if (!result.involvedMods.empty()) {
+                fixes.push_back("Suspected lighting mod: " + result.involvedMods[0]);
+                fixes.push_back("Try disabling lighting/shadow mods to confirm");
+            }
+        } else {
+            // Standard cell loading fixes
+            fixes.push_back("Verify cell edits are not conflicting");
+            fixes.push_back("Check for missing cell dependencies");
+            fixes.push_back("Rebuild cell precombines if using mods that edit cells");
+        }
         break;
         
     case CrashCategory::Memory:
@@ -651,6 +791,11 @@ float RootCauseAnalyzer::CalculateConfidence(const RootCauseResult& result) {
         confidence += 0.2f;
     }
     
+    // Interior cell lighting crashes have high confidence if detected
+    if (result.interiorCellLightingInfo.isInteriorCellLightingCrash) {
+        confidence += 0.2f;
+    }
+    
     // Cap at 1.0
     return std::min(confidence, 1.0f);
 }
@@ -670,9 +815,17 @@ RootCauseResult RootCauseAnalyzer::AnalyzeCrash(const VEH::CrashContext& context
     // Detect grid boundary crashes
     result.gridBoundaryInfo = DetectGridBoundaryCrash(context);
     
+    // Detect interior cell lighting crashes
+    result.interiorCellLightingInfo = DetectInteriorCellLightingCrash(context);
+    
     // Build description
     std::string categoryStr = CrashCategoryToString(result.category);
     result.description = categoryStr + " crash";
+    
+    // Add interior cell lighting context if detected
+    if (result.interiorCellLightingInfo.isInteriorCellLightingCrash) {
+        result.description += " in " + result.interiorCellLightingInfo.lightingSystemType;
+    }
     
     // Add exception code info
     if (IsNullPointerException(context.exceptionCode, context.crashAddress)) {

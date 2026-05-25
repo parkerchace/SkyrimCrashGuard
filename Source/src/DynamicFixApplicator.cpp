@@ -99,10 +99,31 @@ namespace DynamicFix {
                 break;
 
             case RootCauseAnalysis::CrashCategory::Cell:
-                result.strategyUsed = RecoveryStrategy::CellReload;
-                result.success = FixMissingResource(context);
-                if (result.success) {
-                    result.actionsPerformed.push_back("Reloaded cell with validation");
+                // Check for interior cell lighting crashes first
+                if (rootCause.interiorCellLightingInfo.isInteriorCellLightingCrash) {
+                    spdlog::info("DynamicFixApplicator: Detected interior cell lighting crash");
+                    
+                    // For shadow/lighting crashes, use instruction patching to skip the problematic lighting update
+                    if (rootCause.interiorCellLightingInfo.isShadowRelated ||
+                        rootCause.interiorCellLightingInfo.isParticleLightingRelated) {
+                        result.strategyUsed = RecoveryStrategy::InstructionPatch;
+                        result.success = PatchInstruction(context);
+                        if (result.success) {
+                            result.actionsPerformed.push_back(
+                                "Patched interior cell lighting crash: " +
+                                rootCause.interiorCellLightingInfo.lightingSystemType);
+                            result.actionsPerformed.push_back(
+                                "Applied recovery: " +
+                                rootCause.interiorCellLightingInfo.suggestedRecoveryAction);
+                        }
+                    }
+                } else {
+                    // Standard cell loading recovery
+                    result.strategyUsed = RecoveryStrategy::CellReload;
+                    result.success = FixMissingResource(context);
+                    if (result.success) {
+                        result.actionsPerformed.push_back("Reloaded cell with validation");
+                    }
                 }
                 break;
 
