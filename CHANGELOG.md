@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [2.3.6] - 2026-05-26
 
 ### Added
-- **Interior Cell Lighting Crash Detection** - Advanced detection for shadow/lighting system crashes in interior cells
+- **Interior Cell Lighting Crash Detection** - detection for shadow/lighting system crashes in interior cells
   - New `IsInteriorCellLightingCrash()` method for identifying lighting system failures
   - Added 8 signature patterns for lighting subsystems:
     - BSShadowFrustumLight (primary Visentinel crash pattern)
@@ -31,7 +31,7 @@ All notable changes to this project will be documented in this file.
 - **Visentinel Interior Cell Crashes** - Targeted fix for null pointer in BSShadowFrustumLight
   - Addresses crash pattern: `test byte ptr [r14+0x109], 0x08` with null r14
   - Occurs during interior cell loading/rendering with lighting mods active
-  - Suggested fixes now include disabling shadow/lighting mods and ENB compatibility checks
+  
 
 ### Technical Notes
 - Interior lighting crashes represent ~15-20% of interior cell loading issues
