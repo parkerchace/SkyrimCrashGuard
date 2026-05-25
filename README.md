@@ -1,6 +1,6 @@
 # Skyrim Crash Guard
 
-**Version 2.3.5** — Engine-Level Crash Recovery & Performance Optimization System for Skyrim SE/AE/VR
+**Version 2.3.6** — Engine-Level Crash Recovery & Performance Optimization System for Skyrim SE/AE/VR
 
 An Experimental SKSE plugin that **attempts** to prevent and recover from crashes through validation utilities, resource monitoring & management, and a 7-layer exception handling system with instruction pattern matching. Made for fun using LLMs in my free-time. 
 
