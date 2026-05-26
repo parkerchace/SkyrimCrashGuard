@@ -18,6 +18,37 @@ An Experimental SKSE plugin that **attempts** to prevent and recover from crashe
   - [DEPENDENCIES.md](docs/DEPENDENCIES.md) - All build and runtime dependencies
   - [CREDITS.md](docs/CREDITS.md) - Credits and licenses
 
+---
+
+## Feature Status (v2.3.6)
+
+### ✅ Implemented & Working
+| Feature | Status | Notes |
+|---------|--------|-------|
+| VEH Crash Recovery (6-layer) | ✅ Working | L1–L6 recovery chain + L1b pattern matching |
+| Interior Cell Lighting Detection | ✅ Working | Visentinel shadow frustum null-pointer fix |
+| F11 Diagnostic Overlay (ImGui) | ✅ Working | Real-time metrics, config, recovery history |
+| Crash Logging & Analysis | ✅ Working | SKSE/Plugins folder, cooperates with CrashLogger |
+| Performance Metrics | ✅ Working | FPS, frame time, memory pressure display |
+| Pattern Learning System | ✅ Working | Caches crash sites for faster future recovery |
+| Address Library (vcpkg) | ✅ Working | CommonLibSSE-NG via vcpkg — no fake stubs |
+| Input Conflict Prevention | ✅ Working | Blocks camera zoom while scrolling menus |
+| Proactive Mesh/Anim Validation | ✅ Working | Passive utility — not hooked into all loading |
+| Papyrus Native Validation | ✅ Working | Covers SmartHarvest::NotifyActivated |
+
+### ❌ Removed Features (v2.3.5–2.3.6)
+| Feature | Removed In | Reason |
+|---------|-----------|--------|
+| Actor LOD Manager | v2.3.5 | Incomplete implementation — removed entirely |
+| NPC Management (Hide/Restore) | v2.3.5 | Incomplete — ActorLOD system it depended on removed |
+| Resource Limiter (actor culling) | v2.3.6 | Was disabled at startup; settings advertised culling that never occurred |
+
+These features **no longer exist** in the codebase. The `ActorLODManager.h` header, NPC benchmark actions, `[NPCManagement]` and `[ActorLOD]` config sections have all been deleted in v2.3.6.
+
+**Address Library note:** `AddressLibraryStub.h` was also deleted in v2.3.6. That file was an orphaned stub header — never compiled, never included anywhere. v2.3.6 uses **only** the vcpkg-managed address library via CommonLibSSE-NG. No fake stubs are created. `AddressLib::IsValid()` in main.cpp verifies the real library loaded correctly at startup.
+
+---
+
 ## Supported Versions
 - Skyrim Special Edition 1.5.97 (pre-AE)
 - Skyrim Anniversary Edition 1.6.x (all versions)

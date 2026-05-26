@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [2.3.6] - 2026-05-26
 
+### Removed (Dead Code Cleanup)
+- **ActorLODManager.h** — Empty header file deleted; no implementation ever existed
+- **NPC benchmark actions** — `HideNearbyNPCs` / `RestoreNearbyNPCs` functions in BenchmarkManager.cpp removed; they contained no functional code (bodies were `// ActorLOD system removed`)
+- **[NPCManagement] config section** — All NPC management settings removed from Config.h, Config.cpp, and SkyrimCrashGuard.toml; feature was never implemented
+- **[ActorLOD] / [ActorLODDiagnostics] config sections** — All Actor LOD settings removed from Config.h, Config.cpp, and SkyrimCrashGuard.toml; subsystem was disabled and non-functional
+- **AddressLibraryStub.h** — Orphaned stub header deleted; was never compiled (no `#include` references anywhere). Its description implied fake address library creation — this is **not** how v2.3.6 works (vcpkg + CommonLibSSE-NG handle address resolution)
+- **ActorBudgetManager.h** — Orphaned "placeholder" stub header deleted; never compiled
+- **ResourceLimiter.h** — Orphaned stub header deleted; never compiled
+- **[ResourceLimiter] config section** — All resource limiter settings removed from Config.h, Config.cpp, and SkyrimCrashGuard.toml; the subsystem was explicitly disabled at startup (`initialization SKIPPED`) and its settings advertised actor culling that never occurred
+
 ### Added
 - **Interior Cell Lighting Crash Detection** - detection for shadow/lighting system crashes in interior cells
   - New `IsInteriorCellLightingCrash()` method for identifying lighting system failures

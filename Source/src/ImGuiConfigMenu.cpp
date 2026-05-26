@@ -86,7 +86,6 @@ namespace CrashGuard {
         m_cellValidation = config.enableCellValidation;
         m_patternLearning = config.enableLearning;
         m_notifications = config.showNotifications;
-        m_autoManageNPCs = config.autoManageNPCs;
     }
 
     void ImGuiConfigMenu::SaveSettings() {
@@ -98,7 +97,6 @@ namespace CrashGuard {
         config.enableCellValidation = m_cellValidation;
         config.enableLearning = m_patternLearning;
         config.showNotifications = m_notifications;
-        config.autoManageNPCs = m_autoManageNPCs;
     }
 
     void ImGuiConfigMenu::SaveTomlFile() {

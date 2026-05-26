@@ -45,7 +45,6 @@
 #include "PapyrusNativeFunctionHook.h"
 #include "PapyrusValidator.h"
 #include "PresentHook.h"
-// ResourceLimiter and ActorLODManager are disabled during refactor; headers retained in backups.
 #include "MemoryPressureDetector.h"
 #include "DeadlockDetector.h"
 
@@ -202,22 +201,15 @@ namespace {
                 if (log) log->warn("[ImGui] Failed to install overlay - F11 menu will not be available");
             }
         }
-        else if (msg->type == SKSE::MessagingInterface::kNewGame || 
+        else if (msg->type == SKSE::MessagingInterface::kNewGame ||
                  msg->type == SKSE::MessagingInterface::kPreLoadGame) {
             if (log) log->info("[PhaseDetection] Save loading started");
             PhaseTracking::PhaseTracker::TransitionTo(PhaseTracking::GamePhase::LoadingSave);
-            // ActorLOD scheduler stop skipped (ActorLOD disabled)
-            if (log) log->info("[ActorLOD] Scheduler stop skipped (ActorLOD disabled)");
         }
         else if (msg->type == SKSE::MessagingInterface::kPostLoadGame) {
             if (log) log->info("[PhaseDetection] Save loaded - transitioning to Gameplay");
             PhaseTracking::PhaseTracker::TransitionTo(PhaseTracking::GamePhase::Gameplay);
             PhaseTracking::PhaseTracker::StartHealthChecks();
-            // Start ActorLOD scheduler now that gameplay is active. This
-            // defers background ActorLOD work until the game is ready
-            // to avoid interfering with main menu/load screens.
-            // ActorLOD scheduler start skipped (ActorLOD disabled)
-            if (log) log->info("[ActorLOD] Scheduler start skipped (ActorLOD disabled)");
         }
     }
     
@@ -239,12 +231,6 @@ namespace {
         }
 
         return "";
-    }
-
-    // Separate function to avoid C2712: __try in function with C++ unwind objects
-    [[maybe_unused]] static bool TryInitActorLODManager() {
-        spdlog::info("[ActorLOD] Initialization skipped (ActorLOD disabled)");
-        return true;
     }
 
     void InitializePlugin()
@@ -335,22 +321,12 @@ namespace {
         // than it solved (VCRUNTIME140 crashes, reentrancy issues, extreme overhead).
         // See ALLOCATION_HOOK_ANALYSIS.md and PERFORMANCE_MEMORY_STRATEGY.md for details.
 
-        // ── Resource limiter initialization disabled (gut for restart)
-        // NOTE: Backed up under docs/backups. ResourceLimiter code remains in
-        // the repo but is intentionally not initialized to simplify behavior
-        // while we rework actor/AI throttling. See docs/backups for originals.
-        if (log) log->info("Resource limiter initialization SKIPPED (disabled)");
+        // Resource limiter removed in v2.3.6 (feature was disabled/incomplete)
 
         // ── Initialize memory pressure detector ──
         // Safe: Only reads Windows memory APIs, no game state access
         CrashGuard::MemoryPressureDetector::GetSingleton().Initialize();
         if (log) log->info("Memory pressure detector initialized");
-
-        // ── Actor LOD manager initialization intentionally disabled
-        // ActorLOD sources are preserved under docs/backups but the in-game
-        // Actor LOD subsystem is disabled to remove F11 menu clutter while
-        // we rebuild a simpler, save-safe AI threshold + deferred spawn system.
-        if (log) log->info("Actor LOD manager initialization SKIPPED (disabled)");
 
         // ── Register Papyrus native functions for MCM ──
         CrashGuard::PapyrusNatives::Register();
@@ -473,8 +449,10 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
             runtimeVer.major(), runtimeVer.minor(), runtimeVer.patch());
     }
     
-    // Ensure address library stubs / bundled files are prepared before REL/CommonLibSSE uses them
-    // Note: EnsureAddressLibraryStub removed - address library is now managed by vcpkg
+    // Address Library Management (v2.3.6+)
+    // CommonLibSSE-NG provides version independence via vcpkg's maintained address
+    // library database.  No fake stubs, no manual offset generation.
+    // AddressLib::IsValid() (called below) confirms the library loaded correctly.
 
     // Allocate trampoline space for hooks (1KB should be plenty)
     SKSE::AllocTrampoline(1 << 10);

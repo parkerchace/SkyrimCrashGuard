@@ -129,79 +129,14 @@ namespace Config {
         float       overlayTextAlpha = 1.0f;
         float       overlayScale = 1.0f;
 
-        // [ResourceLimiter]
-        int         maxActors = 50;
-        int         maxReferences = 20000;
-        int         maxParticles = 5000;
-        bool        autoCullingEnabled = true;
-        bool        dynamicLimitAdjustment = true;
-
         // [Hotkeys]
         std::string menuToggleKey = "F11";
 
-        // [ActorLOD]
-        bool        actorLODEnabled = false;    // Actor LOD manager initialization (disabled by default in code)
-        float       actorLODUpdateInterval = 2.0f;
-        float       actorLODFullDetailDistance = 3000.0f;
-        float       actorLODMediumDetailDistance = 6000.0f;
-        float       actorLODLlowDetailDistance = 10000.0f;
-        float       actorLODHibernateDistance = 15000.0f;
-        // [ActorLODDiagnostics]
-        // Diagnostic control for ActorLOD subsystem
-        // 0 = Off, 1 = TransitionsOnly, 2 = Verbose (consider/optimal/skip/transition)
-        int         actorLODDiagnosticsLevel = 1; // Default to TransitionsOnly
-        int         actorLODDiagnosticsMaxSizeMB = 5; // Rotate at this size
-        int         actorLODDiagnosticsPerActorCooldownSeconds = 30; // Per-actor minimum seconds between verbose records
-        int         actorLODDiagnosticsGlobalRatePerSecond = 20; // Global cap for diagnostic records per second
         // [Benchmark]
-        // Allow built-in automated benchmark actions (spawn/hide/restore).
-        // These actions may modify actors in the loaded cell; enabled by default
-        // but can be turned off via TOML if desired.
+        // Allow built-in automated benchmark actions.
+        // NPC management actions (HideNearbyNPCs / RestoreNearbyNPCs) were removed
+        // in v2.3.6 — the ActorLOD subsystem they depended on was incomplete.
         bool        allowBuiltinActions = true;
-        float       maxFreezeDistance = 8192.0f;
-        float       updateInterval = 0.5f;
-
-        // Spawn queue / deferred spawn tuning
-        bool        enableDeferredSpawning = true;
-        int         deferredSpawnThreshold = 50; // If a single spawn request requests more than this, defer
-        int         deferredSpawnPerTick = 10;   // How many spawn requests to process per tick
-        int         cullPerTick = 10;            // How many actors to cull per tick for incremental cull
-        
-        // NPC Tools
-        bool        npcToolsToasts = true; // Show toast notifications for NPC Tools actions
-        bool        autoManageNPCs = true; // When true, auto-manage NPC population (throttle spawns / aggressive cull)
-        int         npcReleaseRate = 5;    // How many queued NPCs to release at once (1-20)
-        int         npcCleanupRate = 10;   // How many dead bodies to clean at once (1-50)
-        int         maxDeadBodies = 20;    // Max dead bodies before auto-cleanup triggers (5-100)
-        
-        // NPC Management Strategy
-        bool        usePerCellBaseline = true;  // Use per-cell baseline instead of global threshold
-        int         cellNPCDelta = 20;          // How many NPCs above baseline to allow (5-100)
-        bool        disableInsteadOfDelete = true; // Disable NPCs instead of deleting (allows restoration)
-        int         maxDisabledNPCs = 50;       // Max NPCs to keep disabled (10-200)
-        bool        useSmartPrioritization = true; // Prioritize which NPCs to remove based on burden
-        int         npcRestoreRate = 5;         // How many disabled NPCs to restore at once (1-20)
-        bool        restoreBehindPlayer = true; // Only restore NPCs that are behind player (out of view)
-        
-        // NPC Whitelist/Blacklist (comma-separated keywords)
-        // Whitelist: NPCs with these keywords in their name will NEVER be disabled
-        // Examples: "Jarl" protects all Jarls, "Lydia" protects your housecarl
-        // Add custom keywords here: "MyCustomNPC,ImportantQuest,DoNotRemove"
-        std::string npcWhitelistKeywords = "Jarl,Steward,Housecarl,Companion,Merchant,Vendor,Trainer,Innkeeper,Blacksmith";
-        
-        // Blacklist: NPCs with these keywords will be disabled FIRST when over threshold
-        // Examples: "Summon" removes conjured creatures first, "Bandit" removes generic enemies
-        // Add custom keywords here: "Spam,Duplicate,Test"
-        std::string npcBlacklistKeywords = "Summon,Conjure,Reanimate,Duplicate,Clone,Test,Debug";
-        
-        // Burden Weights - Higher = more likely to be disabled
-        // Adjust these to fine-tune which NPCs are considered "heavy"
-        // Combat NPCs are prioritized for removal to reduce performance impact
-        int         burdenInCombat = 30;        // NPC is actively fighting
-        int         burdenHasMagicEffects = 15; // NPC has active spell effects
-        int         burdenComplexAI = 15;       // NPC is running AI packages (patrol, travel, etc.)
-        int         burdenSummoned = 50;        // Summoned/conjured creatures (temporary by design)
-        int         burdenDuplicate = 100;      // Duplicate NPCs (2nd+ copy of same NPC)
 
         // [MemoryLeakTracking] - REMOVED
         // Memory allocation hooks system has been completely removed.

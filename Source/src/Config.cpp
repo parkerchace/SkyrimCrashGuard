@@ -173,53 +173,11 @@ namespace Config {
             s_settings.overlayTextAlpha = GetValue(config, "PerformanceOverlay", "textAlpha", 1.0f);
             s_settings.overlayScale = GetValue(config, "PerformanceOverlay", "scale", 1.0f);
             
-            // [ResourceLimiter]
-            s_settings.maxActors = GetValue(config, "ResourceLimiter", "maxActors", 50);
-            s_settings.maxReferences = GetValue(config, "ResourceLimiter", "maxReferences", 20000);
-            s_settings.maxParticles = GetValue(config, "ResourceLimiter", "maxParticles", 5000);
-            s_settings.autoCullingEnabled = GetValue(config, "ResourceLimiter", "autoCullingEnabled", true);
-            s_settings.dynamicLimitAdjustment = GetValue(config, "ResourceLimiter", "dynamicLimitAdjustment", true);
-            s_settings.cullPerTick = GetValue(config, "ResourceLimiter", "cullPerTick", 10);
-            s_settings.autoManageNPCs = GetValue(config, "ResourceLimiter", "autoManageNPCs", true);
-            
-            // [NPCManagement]
-            s_settings.npcToolsToasts = GetValue(config, "NPCManagement", "npcToolsToasts", true);
-            s_settings.npcReleaseRate = GetValue(config, "NPCManagement", "npcReleaseRate", 5);
-            s_settings.npcCleanupRate = GetValue(config, "NPCManagement", "npcCleanupRate", 10);
-            s_settings.maxDeadBodies = GetValue(config, "NPCManagement", "maxDeadBodies", 20);
-            s_settings.usePerCellBaseline = GetValue(config, "NPCManagement", "usePerCellBaseline", true);
-            s_settings.cellNPCDelta = GetValue(config, "NPCManagement", "cellNPCDelta", 20);
-            s_settings.disableInsteadOfDelete = GetValue(config, "NPCManagement", "disableInsteadOfDelete", true);
-            s_settings.maxDisabledNPCs = GetValue(config, "NPCManagement", "maxDisabledNPCs", 50);
-            s_settings.useSmartPrioritization = GetValue(config, "NPCManagement", "useSmartPrioritization", true);
-            s_settings.npcRestoreRate = GetValue(config, "NPCManagement", "npcRestoreRate", 5);
-            s_settings.restoreBehindPlayer = GetValue(config, "NPCManagement", "restoreBehindPlayer", true);
-            s_settings.npcWhitelistKeywords = GetValue(config, "NPCManagement", "npcWhitelistKeywords", 
-                std::string("Jarl,Steward,Housecarl,Companion,Merchant,Vendor,Trainer,Innkeeper,Blacksmith"));
-            s_settings.npcBlacklistKeywords = GetValue(config, "NPCManagement", "npcBlacklistKeywords", 
-                std::string("Summon,Conjure,Reanimate,Duplicate,Clone,Test,Debug"));
-            s_settings.burdenInCombat = GetValue(config, "NPCManagement", "burdenInCombat", 30);
-            s_settings.burdenHasMagicEffects = GetValue(config, "NPCManagement", "burdenHasMagicEffects", 15);
-            s_settings.burdenComplexAI = GetValue(config, "NPCManagement", "burdenComplexAI", 15);
-            s_settings.burdenSummoned = GetValue(config, "NPCManagement", "burdenSummoned", 50);
-            s_settings.burdenDuplicate = GetValue(config, "NPCManagement", "burdenDuplicate", 100);
-            
+            // Note: [ResourceLimiter], [NPCManagement], and [ActorLOD] sections removed in v2.3.6
+            // (features were disabled/incomplete and never functional — see CHANGELOG.md)
+
             // [Hotkeys]
             s_settings.menuToggleKey = GetValue(config, "Hotkeys", "menuToggleKey", std::string("F11"));
-            
-            // [ActorLOD]
-            s_settings.actorLODEnabled = GetValue(config, "ActorLOD", "enabled", false);
-            s_settings.actorLODUpdateInterval = GetValue(config, "ActorLOD", "updateInterval", 2.0f);
-            s_settings.actorLODFullDetailDistance = GetValue(config, "ActorLOD", "fullDetailDistance", 3000.0f);
-            s_settings.actorLODMediumDetailDistance = GetValue(config, "ActorLOD", "mediumDetailDistance", 6000.0f);
-            s_settings.actorLODLlowDetailDistance = GetValue(config, "ActorLOD", "lowDetailDistance", 10000.0f);
-            s_settings.actorLODHibernateDistance = GetValue(config, "ActorLOD", "hibernateDistance", 15000.0f);
-
-            // [ActorLODDiagnostics] - opt-in diagnostic records for ActorLOD
-            s_settings.actorLODDiagnosticsLevel = GetValue(config, "ActorLODDiagnostics", "actorLODDiagnosticsLevel", 1);
-            s_settings.actorLODDiagnosticsMaxSizeMB = GetValue(config, "ActorLODDiagnostics", "actorLODDiagnosticsMaxSizeMB", 5);
-            s_settings.actorLODDiagnosticsPerActorCooldownSeconds = GetValue(config, "ActorLODDiagnostics", "perActorCooldownSeconds", 30);
-            s_settings.actorLODDiagnosticsGlobalRatePerSecond = GetValue(config, "ActorLODDiagnostics", "globalRatePerSecond", 20);
 
             // [Benchmark]
             s_settings.allowBuiltinActions = GetValue(config, "Benchmark", "allowBuiltinActions", true);
@@ -389,62 +347,9 @@ namespace Config {
             ofs << "textAlpha = " << s_settings.overlayTextAlpha << "\n";
             ofs << "scale = " << s_settings.overlayScale << "\n\n";
             
-            ofs << "[ResourceLimiter]\n";
-            ofs << "maxActors = " << s_settings.maxActors << "\n";
-            ofs << "maxReferences = " << s_settings.maxReferences << "\n";
-            ofs << "maxParticles = " << s_settings.maxParticles << "\n";
-            ofs << "autoCullingEnabled = " << (s_settings.autoCullingEnabled ? "true" : "false") << "\n";
-            ofs << "dynamicLimitAdjustment = " << (s_settings.dynamicLimitAdjustment ? "true" : "false") << "\n\n";
-            ofs << "cullPerTick = " << s_settings.cullPerTick << "  # How many actors to process per tick during incremental cull\n\n";
-            ofs << "autoManageNPCs = " << (s_settings.autoManageNPCs ? "true" : "false") << "  # When true, automatically manage NPC population (throttle/spawn/cull)\n\n";
-            
-            ofs << "[NPCManagement]\n";
-            ofs << "# ═══════════════════════════════════════════════════════════════════════\n";
-            ofs << "# NPC Management System - Reactive approach with smart prioritization\n";
-            ofs << "# ═══════════════════════════════════════════════════════════════════════\n";
-            ofs << "# This system monitors NPC count every 2 seconds and immediately removes\n";
-            ofs << "# excess NPCs when over threshold. Uses smart burden-based prioritization\n";
-            ofs << "# to remove the most performance-heavy NPCs first.\n\n";
-            
-            ofs << "npcToolsToasts = " << (s_settings.npcToolsToasts ? "true" : "false") << "  # Show toast notifications for NPC actions\n";
-            ofs << "npcReleaseRate = " << s_settings.npcReleaseRate << "  # How many queued NPCs to release at once (1-20)\n";
-            ofs << "npcCleanupRate = " << s_settings.npcCleanupRate << "  # How many dead bodies to clean at once (1-50)\n";
-            ofs << "maxDeadBodies = " << s_settings.maxDeadBodies << "  # Max dead bodies before auto-cleanup (5-100)\n\n";
-            
-            ofs << "# Per-Cell Baseline System\n";
-            ofs << "# Learns the normal NPC count for each cell (e.g., modded cities with 200 NPCs)\n";
-            ofs << "# and only removes NPCs when you exceed baseline + delta\n";
-            ofs << "usePerCellBaseline = " << (s_settings.usePerCellBaseline ? "true" : "false") << "\n";
-            ofs << "cellNPCDelta = " << s_settings.cellNPCDelta << "  # How many NPCs above baseline to allow (5-100)\n\n";
-            
-            ofs << "# Disable vs Delete\n";
-            ofs << "# When true, NPCs are disabled (hidden) instead of deleted, allowing restoration\n";
-            ofs << "disableInsteadOfDelete = " << (s_settings.disableInsteadOfDelete ? "true" : "false") << "\n";
-            ofs << "maxDisabledNPCs = " << s_settings.maxDisabledNPCs << "  # Max NPCs to keep disabled (10-200)\n";
-            ofs << "npcRestoreRate = " << s_settings.npcRestoreRate << "  # How many disabled NPCs to restore at once (1-20)\n";
-            ofs << "restoreBehindPlayer = " << (s_settings.restoreBehindPlayer ? "true" : "false") << "  # Only restore NPCs behind player (out of view)\n\n";
-            
-            ofs << "# Smart Prioritization\n";
-            ofs << "# Uses burden scoring to remove most performance-heavy NPCs first\n";
-            ofs << "useSmartPrioritization = " << (s_settings.useSmartPrioritization ? "true" : "false") << "\n\n";
-            
-            ofs << "# Whitelist/Blacklist Keywords (comma-separated)\n";
-            ofs << "# Whitelist: NPCs with these keywords will NEVER be disabled\n";
-            ofs << "# Add your custom keywords: \"MyImportantNPC,QuestGiver,DoNotRemove\"\n";
-            ofs << "npcWhitelistKeywords = \"" << s_settings.npcWhitelistKeywords << "\"\n\n";
-            
-            ofs << "# Blacklist: NPCs with these keywords will be disabled FIRST\n";
-            ofs << "# Add your custom keywords: \"Spam,Duplicate,Test\"\n";
-            ofs << "npcBlacklistKeywords = \"" << s_settings.npcBlacklistKeywords << "\"\n\n";
-            
-            ofs << "# Burden Weights - Higher = more likely to be disabled\n";
-            ofs << "# Adjust these to fine-tune which NPCs are considered \"heavy\"\n";
-            ofs << "burdenInCombat = " << s_settings.burdenInCombat << "  # NPC is actively fighting\n";
-            ofs << "burdenHasMagicEffects = " << s_settings.burdenHasMagicEffects << "  # NPC has active spell effects\n";
-            ofs << "burdenComplexAI = " << s_settings.burdenComplexAI << "  # NPC is running AI packages\n";
-            ofs << "burdenSummoned = " << s_settings.burdenSummoned << "  # Summoned/conjured creatures\n";
-            ofs << "burdenDuplicate = " << s_settings.burdenDuplicate << "  # Duplicate NPCs (2nd+ copy)\n\n";
-            
+            // Note: [ResourceLimiter], [NPCManagement], and [ActorLOD] sections removed in v2.3.6
+            // (features were disabled/incomplete and never functional)
+
             ofs << "[Hotkeys]\n";
             ofs << "menuToggleKey = \"" << s_settings.menuToggleKey << "\"  # Hotkey to toggle F11 menu\n\n";
 

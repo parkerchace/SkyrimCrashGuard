@@ -3,7 +3,6 @@
 #include "Config.h"
 #include <spdlog/spdlog.h>
 #include <filesystem>
-#include <type_traits>
 
 namespace CrashGuard {
 
@@ -14,83 +13,10 @@ namespace CrashGuard {
 
     void BenchmarkManager::RegisterBuiltinActions()
     {
-        std::lock_guard l(m_mutex);
-        if (!Config::Get().allowBuiltinActions) return;
-
-        if (m_actions.find("HideNearbyNPCs") == m_actions.end()) {
-            m_actions["HideNearbyNPCs"] = []() {
-                try {
-                    auto processLists = RE::ProcessLists::GetSingleton();
-                    auto player = RE::PlayerCharacter::GetSingleton();
-                    if (!processLists || !player) return;
-                    auto playerPos = player->GetPosition();
-                    constexpr float RANGE = 8000.0f; // ~112m
-                    for (auto& handle : processLists->highActorHandles) {
-                        auto actor = handle.get();
-                        // Normalize to raw pointer whether actor is raw or NiPointer
-                        RE::Actor* rawActor = nullptr;
-                        if (!actor) continue;
-                        try {
-                            if constexpr (std::is_pointer_v<decltype(actor)>) {
-                                rawActor = actor;
-                            } else {
-                                rawActor = actor.get();
-                            }
-                        } catch(...) { continue; }
-                        if (!rawActor) continue;
-                        try {
-                            if (rawActor->IsDeleted()) continue;
-                        } catch(...) {}
-                        float dist = playerPos.GetDistance(rawActor->GetPosition());
-                        if (dist <= RANGE) {
-                            try {
-                                // ActorLOD system removed
-                            } catch(...) {}
-                        }
-                    }
-                    spdlog::info("[Benchmark][Action] HideNearbyNPCs executed");
-                } catch (...) {
-                    spdlog::warn("[Benchmark][Action] HideNearbyNPCs failed (exception)");
-                }
-            };
-        }
-
-        if (m_actions.find("RestoreNearbyNPCs") == m_actions.end()) {
-            m_actions["RestoreNearbyNPCs"] = []() {
-                try {
-                    auto processLists = RE::ProcessLists::GetSingleton();
-                    auto player = RE::PlayerCharacter::GetSingleton();
-                    if (!processLists || !player) return;
-                    auto playerPos = player->GetPosition();
-                    constexpr float RANGE = 8000.0f;
-                    for (auto& handle : processLists->highActorHandles) {
-                        auto actor = handle.get();
-                        RE::Actor* rawActor = nullptr;
-                        if (!actor) continue;
-                        try {
-                            if constexpr (std::is_pointer_v<decltype(actor)>) {
-                                rawActor = actor;
-                            } else {
-                                rawActor = actor.get();
-                            }
-                        } catch(...) { continue; }
-                        if (!rawActor) continue;
-                        try {
-                            if (rawActor->IsDeleted()) continue;
-                        } catch(...) {}
-                        float dist = playerPos.GetDistance(rawActor->GetPosition());
-                        if (dist <= RANGE) {
-                            try {
-                                // ActorLOD system removed
-                            } catch(...) {}
-                        }
-                    }
-                    spdlog::info("[Benchmark][Action] RestoreNearbyNPCs executed");
-                } catch (...) {
-                    spdlog::warn("[Benchmark][Action] RestoreNearbyNPCs failed (exception)");
-                }
-            };
-        }
+        // NPC management actions (HideNearbyNPCs / RestoreNearbyNPCs) were
+        // removed in v2.3.6.  The ActorLOD subsystem they depended on was
+        // incomplete and has been fully deleted from the codebase.
+        // No built-in actions are registered at this time.
     }
 
     void BenchmarkManager::ExecuteActionNow(const std::string& name)

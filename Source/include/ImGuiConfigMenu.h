@@ -59,7 +59,6 @@ namespace CrashGuard {
         bool m_cellValidation = true;
         bool m_patternLearning = true;
         bool m_notifications = true;
-        bool m_autoManageNPCs = true;
         
         // Hotkey settings
         int m_menuHotkey = VK_F11;

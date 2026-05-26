@@ -30,7 +30,7 @@ namespace CrashGuard {
         // Register a named action that can be invoked during a sequence
         void RegisterAction(const std::string& name, std::function<void()> fn);
 
-        // Register safe built-in actions (Hide/Restore nearby NPCs, etc.)
+        // Register built-in benchmark actions (no-op since v2.3.6; NPC actions removed)
         void RegisterBuiltinActions();
         // Execute a registered action immediately on the calling thread (main thread)
         void ExecuteActionNow(const std::string& name);
