@@ -8,6 +8,7 @@
 #include <imgui.h>
 #include "Config.h"
 #include "PerformanceMetrics.h"
+#include "CrashTestSuite.h"
 // #include "DebugVisualization.h"  // Temporarily disabled - missing file
 
 namespace CrashGuard {
@@ -35,7 +36,8 @@ namespace CrashGuard {
             Debug,             // Debug visualization + hotkeys
             SeverityGuide,     // Severity classification guide
             RecoveryStats,     // Recovery statistics
-            Recovery           // Consolidated recovery UI (history, severity guide, stats)
+            Recovery,          // Consolidated recovery UI (history, severity guide, stats)
+            Diagnostics        // VEH layer stats + crash recovery test suite
         };
         void OpenToTab(Tab tab);
 
@@ -111,6 +113,7 @@ namespace CrashGuard {
         void RenderDebugTab();
         void RenderSeverityGuideTab();
         void RenderRecoveryStatisticsTab();
+        void RenderDiagnosticsTab();
         
         // Helper for severity guide
         void RenderSeverityLevel(

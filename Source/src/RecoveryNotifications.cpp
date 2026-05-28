@@ -20,7 +20,14 @@ namespace CrashGuard {
         const std::string& strategy,
         const std::vector<std::string>& actions,
         const std::vector<std::string>& suspectedMods,
-        bool successful
+        bool successful,
+        LayerID     layerUsed,
+        std::string crashAddr,
+        std::string moduleName,
+        std::string decodedInstruction,
+        uint64_t    accessAddress,
+        int         accessType,
+        std::string affectedRegister
     ) {
         std::lock_guard<std::mutex> lock(m_mutex);
         
@@ -34,12 +41,19 @@ namespace CrashGuard {
         
         // Create toast notification
         RecoveryToast toast;
-        toast.severity = severity;
-        toast.summary = CreateSummary(rootCause, strategy);
-        toast.strategy = strategy;
-        toast.timestamp = std::chrono::steady_clock::now();
-        toast.visible = true;
-        
+        toast.severity           = severity;
+        toast.summary            = CreateSummary(rootCause, strategy);
+        toast.strategy           = strategy;
+        toast.timestamp          = std::chrono::steady_clock::now();
+        toast.visible            = true;
+        // Rich crash context
+        toast.crashAddr          = crashAddr;
+        toast.moduleName         = moduleName;
+        toast.decodedInstruction = decodedInstruction;
+        toast.accessAddress      = accessAddress;
+        toast.accessType         = accessType;
+        toast.affectedRegister   = affectedRegister;
+
         // Set display time based on severity
         if (severity == "Safe") {
             toast.displayTime = TOAST_DURATION_SAFE;
@@ -63,7 +77,14 @@ namespace CrashGuard {
         entry.strategy = strategy;
         entry.actions = actions;
         entry.suspectedMods = suspectedMods;
-        entry.successful = successful;
+        entry.successful         = successful;
+        entry.layerUsed          = layerUsed;
+        entry.crashAddr          = crashAddr;
+        entry.moduleName         = moduleName;
+        entry.decodedInstruction = decodedInstruction;
+        entry.accessAddress      = accessAddress;
+        entry.accessType         = accessType;
+        entry.affectedRegister   = affectedRegister;
         
         // Add to history (limit to MAX_HISTORY)
         m_history.insert(m_history.begin(), entry);
@@ -77,75 +98,123 @@ namespace CrashGuard {
 
     void RecoveryNotifications::RenderToasts() {
         std::lock_guard<std::mutex> lock(m_mutex);
-        
+
         UpdateToasts();
-        
-        if (m_activeToasts.empty()) {
-            return;
-        }
-        
-        ImGuiIO& io = ImGui::GetIO();
-        float padding = 10.0f;
-        float toastWidth = 400.0f;
-        float toastSpacing = 10.0f;
-        float yOffset = padding;
-        
+
+        if (m_activeToasts.empty()) return;
+
+        ImGuiIO& io       = ImGui::GetIO();
+        float    padding  = 12.0f;
+        float    width    = 360.0f;
+        float    spacing  = 8.0f;
+        float    yOffset  = padding;
+
+        ImGuiWindowFlags flags =
+            ImGuiWindowFlags_NoDecoration    |
+            ImGuiWindowFlags_AlwaysAutoResize |
+            ImGuiWindowFlags_NoSavedSettings  |
+            ImGuiWindowFlags_NoFocusOnAppearing |
+            ImGuiWindowFlags_NoNav            |
+            ImGuiWindowFlags_NoMove;
+
         for (auto& toast : m_activeToasts) {
             if (!toast.visible) continue;
-            
-            // Calculate fade alpha based on remaining time
-            float alpha = 1.0f;
-            if (toast.displayTime < 1.0f) {
-                alpha = toast.displayTime; // Fade out in last second
-            }
-            
-            ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - padding, yOffset), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
-            ImGui::SetNextWindowSize(ImVec2(toastWidth, 0), ImGuiCond_Always);
-            ImGui::SetNextWindowBgAlpha(0.85f * alpha);
-            
-            ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | 
-                                    ImGuiWindowFlags_AlwaysAutoResize |
-                                    ImGuiWindowFlags_NoSavedSettings |
-                                    ImGuiWindowFlags_NoFocusOnAppearing |
-                                    ImGuiWindowFlags_NoNav |
-                                    ImGuiWindowFlags_NoMove;
-            
-            std::string windowName = "RecoveryToast##" + std::to_string((uintptr_t)&toast);
-            
-            if (ImGui::Begin(windowName.c_str(), nullptr, flags)) {
-                // Color based on severity
-                ImVec4 severityColor;
-                if (toast.severity == "Safe") {
-                    severityColor = ImVec4(0.2f, 1.0f, 0.2f, alpha);
-                } else if (toast.severity == "Warning") {
-                    severityColor = ImVec4(1.0f, 0.8f, 0.2f, alpha);
-                } else {
-                    severityColor = ImVec4(1.0f, 0.2f, 0.2f, alpha);
-                }
-                
-                // Header with severity
-                ImGui::PushStyleColor(ImGuiCol_Text, severityColor);
-                ImGui::Text("Crash Recovered - %s", toast.severity.c_str());
+
+            float alpha = (toast.displayTime < 1.0f) ? toast.displayTime : 1.0f;
+
+            ImGui::SetNextWindowPos(
+                ImVec2(io.DisplaySize.x - padding, yOffset),
+                ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+            ImGui::SetNextWindowSize(ImVec2(width, 0), ImGuiCond_Always);
+            ImGui::SetNextWindowBgAlpha(0.88f * alpha);
+
+            std::string wname = "##toast" + std::to_string((uintptr_t)&toast);
+            if (ImGui::Begin(wname.c_str(), nullptr, flags)) {
+
+                // ── Severity header ─────────────────────────────────────
+                ImVec4 sevCol = (toast.severity == "Safe")    ? ImVec4(0.30f, 1.00f, 0.30f, alpha)
+                              : (toast.severity == "Warning") ? ImVec4(1.00f, 0.80f, 0.25f, alpha)
+                                                               : ImVec4(1.00f, 0.28f, 0.28f, alpha);
+                ImGui::PushStyleColor(ImGuiCol_Text, sevCol);
+                ImGui::TextUnformatted("[+] CrashGuard intercepted a crash");
                 ImGui::PopStyleColor();
-                
+
                 ImGui::Separator();
-                
-                // Summary
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, alpha));
-                ImGui::TextWrapped("%s", toast.summary.c_str());
+
+                bool hasRich = !toast.crashAddr.empty();
+
+                if (hasRich) {
+                    // ── Crash address + module ────────────────────────────
+                    bool isMod = !toast.moduleName.empty() &&
+                                 toast.moduleName != "SkyrimSE.exe" &&
+                                 toast.moduleName != "SkyrimVR.exe" &&
+                                 toast.moduleName != "Skyrim.exe";
+                    ImVec4 addrCol = isMod
+                        ? ImVec4(1.00f, 0.68f, 0.18f, alpha)
+                        : ImVec4(0.52f, 0.52f, 0.52f, alpha);
+                    ImGui::TextColored(addrCol, "%s", toast.crashAddr.c_str());
+
+                    // ── Decoded instruction ───────────────────────────────
+                    if (!toast.decodedInstruction.empty()) {
+                        ImGui::PushStyleColor(ImGuiCol_Text,
+                            ImVec4(0.58f, 0.90f, 0.48f, alpha));
+                        ImGui::TextUnformatted(toast.decodedInstruction.c_str());
+                        ImGui::PopStyleColor();
+                    }
+
+                    // ── Access + resolution (compact one-liner) ───────────
+                    if (toast.accessType >= 0) {
+                        char accessBuf[48] = {};
+                        char resolveBuf[40] = {};
+
+                        if (toast.accessAddress == 0) {
+                            snprintf(accessBuf, sizeof(accessBuf),
+                                toast.accessType == 8 ? "Execute 0x0" :
+                                toast.accessType == 1 ? "Write null"  : "Read null");
+                        } else if (toast.accessAddress < 0x10000) {
+                            snprintf(accessBuf, sizeof(accessBuf),
+                                toast.accessType == 1
+                                    ? "Write null+0x%llX"
+                                    : "Read null+0x%llX",
+                                (unsigned long long)toast.accessAddress);
+                        } else {
+                            snprintf(accessBuf, sizeof(accessBuf),
+                                toast.accessType == 1
+                                    ? "Write 0x%llX"
+                                    : "Read 0x%llX",
+                                (unsigned long long)toast.accessAddress);
+                        }
+
+                        if (!toast.affectedRegister.empty())
+                            snprintf(resolveBuf, sizeof(resolveBuf),
+                                "%s zeroed", toast.affectedRegister.c_str());
+                        else if (toast.accessType == 1)
+                            snprintf(resolveBuf, sizeof(resolveBuf), "write dropped");
+                        else if (toast.accessType == 8)
+                            snprintf(resolveBuf, sizeof(resolveBuf), "call returned");
+                        else
+                            snprintf(resolveBuf, sizeof(resolveBuf), "skipped");
+
+                        ImGui::PushStyleColor(ImGuiCol_Text,
+                            ImVec4(0.42f, 0.42f, 0.42f, alpha));
+                        ImGui::Text("%s  ->  %s", accessBuf, resolveBuf);
+                        ImGui::PopStyleColor();
+                    }
+                } else {
+                    // ── Fallback for resource warnings etc. ───────────────
+                    ImGui::PushStyleColor(ImGuiCol_Text,
+                        ImVec4(0.74f, 0.74f, 0.74f, alpha));
+                    ImGui::TextWrapped("%s", toast.summary.c_str());
+                    ImGui::PopStyleColor();
+                }
+
+                // ── F11 hint ──────────────────────────────────────────────
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                    ImVec4(0.30f, 0.30f, 0.30f, alpha * 0.9f));
+                ImGui::TextUnformatted("F11 for details");
                 ImGui::PopStyleColor();
-                
-                // Strategy
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, alpha));
-                ImGui::Text("Strategy: %s", toast.strategy.c_str());
-                ImGui::PopStyleColor();
-                
-                // Hint to open F11 menu
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, alpha * 0.8f));
-                ImGui::Text("Press F11 for details");
-                ImGui::PopStyleColor();
-                
-                yOffset += ImGui::GetWindowHeight() + toastSpacing;
+
+                yOffset += ImGui::GetWindowHeight() + spacing;
             }
             ImGui::End();
         }

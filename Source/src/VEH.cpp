@@ -55,6 +55,7 @@
 #include "NotificationThresholdManager.h"
 #include "ToastNotificationManager.h"
 #include "RecoveryStatistics.h"
+#include "LayerTrace.h"
 
 #include <spdlog/spdlog.h>
 #include "Config.h"
@@ -408,10 +409,18 @@ static constexpr size_t     SAFETY_SZ   = 0x10000;   // 64 KB
 
 static ZydisDecoder         s_decoder;
 static bool                 s_decoderOK = false;
+static ZydisFormatter       s_formatter;
+static bool                 s_formatterOK = false;
 
 // Per-thread reentrancy guard
 static thread_local int     t_depth = 0;
 static constexpr int        MAX_DEPTH = 3;
+
+// Per-thread test mode: allows VEH to recover exceptions in CrashGuard's own
+// module (IsSelfAddr == true) and bypasses cascade / cooldown gates.
+// Enabled only during the internal diagnostic test suite.
+static thread_local bool                  t_testMode  = false;
+static thread_local CrashGuard::LayerTrace t_lastTrace;
 
 // Recovery statistics
 struct Stats {
@@ -711,6 +720,9 @@ static bool IsGameAddr(uintptr_t a) { return a >= s_gameBase && a < s_gameEnd; }
 // Check if address is inside CrashGuard's own DLL
 static bool IsSelfAddr(uintptr_t a) { return a >= s_selfBase && a < s_selfEnd; }
 
+// Forward declaration — defined below with VirtualQuery helpers
+static bool IsExec(const void* p);
+
 // Check if address is inside a system/OS DLL (ntdll, kernel32, etc.)
 // These should never be recovered — they indicate OS-level issues or
 // are part of normal exception dispatch.
@@ -718,8 +730,12 @@ static bool IsSystemDLL(uintptr_t a) {
     HMODULE h = nullptr;
     constexpr DWORD flags = GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
                           | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT;
-    if (!GetModuleHandleExA(flags, reinterpret_cast<LPCSTR>(a), &h) || !h)
-        return true;  // unknown module → treat as system
+    if (!GetModuleHandleExA(flags, reinterpret_cast<LPCSTR>(a), &h) || !h) {
+        // Anonymous memory with execute permission (VirtualAlloc JIT pages, test stubs,
+        // etc.) is legitimate code, not a system DLL.  Non-executable anonymous memory
+        // is garbage — treat that as system so recovery is skipped.
+        return !IsExec(reinterpret_cast<void*>(a));
+    }
 
     char buf[MAX_PATH];
     if (!GetModuleFileNameA(h, buf, MAX_PATH))
@@ -2024,8 +2040,8 @@ static bool InjectIntoCrashLoggerLog_Sync() {
     std::string notice =
         "================================================================================\n"
         "NOTE: SkyrimCrashGuard (experimental) is also installed.\n"
-        "CrashGuard attempted to recover this crash via its 7-layer VEH chain (L1-L6+L1b).\n"
-        "All recovery layers were exhausted. CrashGuard may have modified game state\n"
+        "CrashGuard attempted to recover this crash via its 6-layer VEH chain (L1/L1b, L2-L6).\n"
+        "All recovery layers were exhausted. CrashGuard may have modified register state\n"
         "during those attempts. Read this crash log with a grain of salt and\n"
         "cross-reference SkyrimCrashGuard.log (same SKSE folder) for full details.\n"
         "================================================================================\n\n";
@@ -2425,6 +2441,8 @@ bool VEHExceptionHandler::Initialize() {
     // ── Zydis decoder ──
     s_decoderOK = ZYAN_SUCCESS(ZydisDecoderInit(&s_decoder,
         ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64));
+    s_formatterOK = ZYAN_SUCCESS(ZydisFormatterInit(&s_formatter,
+        ZYDIS_FORMATTER_STYLE_INTEL));
 
     // ── Initialize DbgHelp for symbol resolution ──
     HANDLE process = GetCurrentProcess();
@@ -2516,8 +2534,35 @@ void VEHExceptionHandler::LogStats() {
     log->info("[VEH] Recovery Stats - Total: {}, L1: {}, L2: {}, L3: {}, L4: {}, L5: {}, L6: {}, Failed: {}, Learned: {}/{}",
               s_stats.total.load(), s_stats.knownSite.load(), s_stats.learnedSite.load(),
               s_stats.regFixup.load(), s_stats.instrSkip.load(), s_stats.funcReturn.load(),
-              s_stats.deepWalk.load(), s_stats.unrecoverable.load(), 
+              s_stats.deepWalk.load(), s_stats.unrecoverable.load(),
               s_learnedCount.load(), MAX_LEARNED);
+}
+
+VEHExceptionHandler::LayerStats VEHExceptionHandler::GetLayerStats() {
+    LayerStats ls;
+    ls.total         = s_stats.total.load();
+    ls.knownSite     = s_stats.knownSite.load();
+    ls.instrPattern  = s_stats.instrPattern.load();
+    ls.learnedSite   = s_stats.learnedSite.load();
+    ls.regFixup      = s_stats.regFixup.load();
+    ls.instrSkip     = s_stats.instrSkip.load();
+    ls.funcReturn    = s_stats.funcReturn.load();
+    ls.deepWalk      = s_stats.deepWalk.load();
+    ls.unrecoverable = s_stats.unrecoverable.load();
+    return ls;
+}
+
+void VEHExceptionHandler::EnableThreadTestMode() {
+    t_testMode = true;
+    t_lastTrace = CrashGuard::LayerTrace{};  // clear previous trace
+}
+
+void VEHExceptionHandler::DisableThreadTestMode() {
+    t_testMode = false;
+}
+
+CrashGuard::LayerTrace VEHExceptionHandler::GetLastTestTrace() {
+    return t_lastTrace;
 }
 
 void VEHExceptionHandler::PauseGameThreads() {
@@ -3220,8 +3265,8 @@ static LONG CALLBACK OrchestratedRecovery(PEXCEPTION_POINTERS info) {
     
     if (code == EXCEPTION_ACCESS_VIOLATION &&
         info->ExceptionRecord->NumberParameters >= 2 &&
-        !IsSelfAddr(rip)) {
-        
+        (!IsSelfAddr(rip) || t_testMode)) {
+
         auto* ctx = info->ContextRecord;
         ULONG_PTR accessType = info->ExceptionRecord->ExceptionInformation[0];
         uintptr_t accessAddr = info->ExceptionRecord->ExceptionInformation[1];
@@ -3238,12 +3283,28 @@ static LONG CALLBACK OrchestratedRecovery(PEXCEPTION_POINTERS info) {
             // INTELLIGENT RECOVERY: Use Zydis to understand the crash
             // ══════════════════════════════════════════════════════════════
             // ══════════════════════════════════════════════════════════════
+            // Capture variables for F11 recovery history — populated during recovery
+            std::string capturedInstrStr;
+            std::string capturedRegName;
+
             if (!recovered) {
                 ZydisDecodedInstruction instr;
                 ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT];
                 if (IsReadable(reinterpret_cast<void*>(rip), 15) &&
                     ZYAN_SUCCESS(ZydisDecoderDecodeFull(&s_decoder, reinterpret_cast<void*>(rip), 15, &instr, operands))) {
-                    
+
+                    // Format instruction string once for the UI
+                    if (s_formatterOK) {
+                        char instrBuf[128] = {};
+                        if (ZYAN_SUCCESS(ZydisFormatterFormatInstruction(
+                                &s_formatter, &instr, operands,
+                                instr.operand_count_visible,
+                                instrBuf, sizeof(instrBuf),
+                                (ZyanU64)rip, nullptr))) {
+                            capturedInstrStr = instrBuf;
+                        }
+                    }
+
                     if (isRead) {
                         // ── READ AV: Find destination register and zero it ──
                         ZydisRegister destReg = ZYDIS_REGISTER_NONE;
@@ -3261,6 +3322,7 @@ static LONG CALLBACK OrchestratedRecovery(PEXCEPTION_POINTERS info) {
                             ctx->Rip += instr.length;
                             recovered = true;
                             recoveryMethod = "zeroed XMM";
+                            capturedRegName = fmt::format("xmm{}", (int)(destReg - ZYDIS_REGISTER_XMM0));
                             
                             // Check module throttling
                             bool firstSilent = false;
@@ -3286,6 +3348,7 @@ static LONG CALLBACK OrchestratedRecovery(PEXCEPTION_POINTERS info) {
                                 ctx->Rip += instr.length;
                                 recovered = true;
                                 recoveryMethod = "zeroed register";
+                                if (const char* rn = ZydisRegisterGetString(destReg)) capturedRegName = rn;
                                 
                                 // Check module throttling
                                 bool firstSilent = false;
@@ -3304,18 +3367,19 @@ static LONG CALLBACK OrchestratedRecovery(PEXCEPTION_POINTERS info) {
                                 }
                             }
                         }
-                        // No destination register - try function return
+                        // No destination register (TEST, CMP, etc.) — try to exit safely.
+                        // In test mode the faulting instruction is inside a __try/__except
+                        // kernel whose SEH prologue has adjusted RSP — L5/L6 would jump to
+                        // the wrong frame.  Skip directly to instruction-skip instead.
                         if (!recovered) {
-                            if (L5_FuncReturn(ctx)) {
+                            if (!t_testMode && L5_FuncReturn(ctx)) {
                                 recovered = true;
-                                recoveryMethod = "function return";
-                                
-                                // Check module throttling
+                                recoveryMethod = "function return (no output reg)";
+
                                 bool firstSilent = false;
                                 std::string modName = ModName(rip);
                                 uintptr_t modOff = ModOff(rip);
                                 bool suppressLog = CheckModuleThrottle(modName, modOff, firstSilent);
-                                
                                 if (log && !suppressLog) {
                                     log->warn("[VEH] Universal Recovery: {}+{:#X} READ AV -> function return",
                                               modName, modOff);
@@ -3325,6 +3389,48 @@ static LONG CALLBACK OrchestratedRecovery(PEXCEPTION_POINTERS info) {
                                     log->warn("[VEH] High-frequency crash detected: {} crashed {} times in {}s, suppressing logs for {}s",
                                               modName, cfg.moduleThrottleThreshold, cfg.moduleThrottleWindowMs / 1000, cfg.moduleSilentDurationMs / 1000);
                                 }
+                            }
+                        }
+                        // L6 deep-walk fallback — also skipped in test mode for same reason
+                        if (!recovered) {
+                            if (!t_testMode && L6_DeepWalk(ctx)) {
+                                recovered = true;
+                                recoveryMethod = "deep stack walk (no output reg)";
+
+                                bool firstSilent = false;
+                                std::string modName = ModName(rip);
+                                uintptr_t modOff = ModOff(rip);
+                                bool suppressLog = CheckModuleThrottle(modName, modOff, firstSilent);
+                                if (log && !suppressLog) {
+                                    log->warn("[VEH] Universal Recovery: {}+{:#X} READ AV -> deep walk",
+                                              modName, modOff);
+                                }
+                                if (firstSilent && log) {
+                                    const auto& cfg = Config::Get();
+                                    log->warn("[VEH] High-frequency crash detected: {} crashed {} times in {}s, suppressing logs for {}s",
+                                              modName, cfg.moduleThrottleThreshold, cfg.moduleThrottleWindowMs / 1000, cfg.moduleSilentDurationMs / 1000);
+                                }
+                            }
+                        }
+                        // Last resort: advance RIP past the faulting instruction.
+                        // In test mode this is the primary path — safe inside __try.
+                        if (!recovered) {
+                            ctx->Rip += instr.length;
+                            recovered = true;
+                            recoveryMethod = "skipped instruction (no output reg)";
+
+                            bool firstSilent = false;
+                            std::string modName = ModName(rip);
+                            uintptr_t modOff = ModOff(rip);
+                            bool suppressLog = CheckModuleThrottle(modName, modOff, firstSilent);
+                            if (log && !suppressLog) {
+                                log->warn("[VEH] Universal Recovery: {}+{:#X} READ AV (no dest reg) -> skipped {} bytes",
+                                          modName, modOff, instr.length);
+                            }
+                            if (firstSilent && log) {
+                                const auto& cfg = Config::Get();
+                                log->warn("[VEH] High-frequency crash detected: {} crashed {} times in {}s, suppressing logs for {}s",
+                                          modName, cfg.moduleThrottleThreshold, cfg.moduleThrottleWindowMs / 1000, cfg.moduleSilentDurationMs / 1000);
                             }
                         }
                     }
@@ -3383,6 +3489,7 @@ static LONG CALLBACK OrchestratedRecovery(PEXCEPTION_POINTERS info) {
             
             if (recovered) {
                 s_stats.instrPattern++;
+                s_stats.total++;  // include universal-recovery hits in GetCrashCount()
                 CrashGuard::PerformanceMonitor::GetSingleton().IncrementCrashesPrevented();
                 // Mark write-skip recoveries so we can allow one immediate cascade
                 bool wasWriteSkip = (recoveryMethod && std::string(recoveryMethod) == "skipped write");
@@ -3410,11 +3517,36 @@ static LONG CALLBACK OrchestratedRecovery(PEXCEPTION_POINTERS info) {
                     // Add a history entry for the F11 Crash History tab
                     auto severityStr = std::string("Warning");
                     std::string rootCause = (recoveryMethod && recoveryMethod[0]) ? std::string(recoveryMethod) : std::string("Automatic recovery");
+
+                    // Map recoveryMethod string -> LayerID for the UI diagram
+                    auto layerFromMethod = [](const char* m) -> CrashGuard::LayerID {
+                        using LID = CrashGuard::LayerID;
+                        if (!m || !m[0]) return LID::Unrecovered;
+                        std::string_view s(m);
+                        if (s == "zeroed XMM")                          return LID::UR_ZeroedXMM;
+                        if (s == "zeroed register")                     return LID::UR_ZeroedReg;
+                        if (s == "skipped write")                       return LID::UR_WriteSkip;
+                        if (s == "skipped instruction (no output reg)") return LID::UR_FlagsSkip;
+                        if (s == "function return (no output reg)")     return LID::UR_FuncReturn;
+                        if (s == "deep stack walk (no output reg)")     return LID::UR_DeepWalk;
+                        if (s == "function return (system DLL)")        return LID::UR_FuncReturn;
+                        return LID::Unrecovered;
+                    };
+                    CrashGuard::LayerID lid = layerFromMethod(recoveryMethod);
+                    std::string modNameStr   = ModName(rip);
+                    std::string crashAddrStr = fmt::format("{}+{:#X}", modNameStr, ModOff(rip));
+
                     RecoveryNotifications::GetSingleton().AddRecovery(
                         severityStr,
                         rootCause,
                         std::string("AutomaticRecovery"),
-                        {}, {}, true
+                        {}, {}, true,
+                        lid, crashAddrStr,
+                        modNameStr,
+                        capturedInstrStr,
+                        (uint64_t)accessAddr,
+                        (int)accessType,
+                        capturedRegName
                     );
                 } catch (...) {}
 
@@ -3436,10 +3568,12 @@ static LONG CALLBACK OrchestratedRecovery(PEXCEPTION_POINTERS info) {
         isExecuteAV = true;
         if (IsReadable(reinterpret_cast<void*>(info->ContextRecord->Rsp), 8)) {
             uintptr_t retAddr = *reinterpret_cast<uint64_t*>(info->ContextRecord->Rsp);
-            if (IsSelfAddr(retAddr) || IsSystemDLL(retAddr) || !IsRecoverableAddr(retAddr)) {
+            // t_testMode: allow execute-AV even when the return address is inside our own
+            // plugin (NullCallKernel lives in CrashGuard.dll and would otherwise be blocked).
+            if (!t_testMode && (IsSelfAddr(retAddr) || IsSystemDLL(retAddr) || !IsRecoverableAddr(retAddr))) {
                 return EXCEPTION_CONTINUE_SEARCH;
             }
-            // Caller is in game/mod code — let it through to Handler
+            // Caller is in game/mod code (or test mode) — let it through to Handler
         } else {
             return EXCEPTION_CONTINUE_SEARCH;
         }
@@ -3448,14 +3582,16 @@ static LONG CALLBACK OrchestratedRecovery(PEXCEPTION_POINTERS info) {
     // ── Module filter: recover crashes in game exe AND mod DLLs ──
     // Skip system DLLs (ntdll, kernel32, etc.) and CrashGuard's own module.
     // (Skipped for execute-AVs which already passed the return-address check above)
+    // In test mode, allow CrashGuard's own module through so test kernels can
+    // reach the Handler-level recovery layers.
     if (!isExecuteAV) {
-        if (IsSelfAddr(rip)) {
+        if (IsSelfAddr(rip) && !t_testMode) {
             return EXCEPTION_CONTINUE_SEARCH;
         }
         if (IsSystemDLL(rip)) {
             return EXCEPTION_CONTINUE_SEARCH;
         }
-        if (!IsRecoverableAddr(rip)) {
+        if (!IsRecoverableAddr(rip) && !t_testMode) {
             return EXCEPTION_CONTINUE_SEARCH;
         }
     }
@@ -3569,7 +3705,7 @@ static LONG CALLBACK OrchestratedRecovery(PEXCEPTION_POINTERS info) {
                             fallback << "================================================================================\n";
                             fallback << "SkyrimCrashGuard - Unrecovered Crash Report\n";
                             fallback << "================================================================================\n\n";
-                            fallback << "CrashGuard attempted to recover this crash via its 7-layer VEH chain (L1-L6+L1b).\n";
+                            fallback << "CrashGuard attempted to recover this crash via its 6-layer VEH chain (L1/L1b, L2-L6).\n";
                             fallback << "All recovery layers were exhausted.\n\n";
                             fallback << "WARNING: CrashGuard could not inject this notice into CrashLogger's log file.\n";
                             fallback << "This may indicate CrashLogger wrote its log to a different location or\n";
@@ -3710,11 +3846,11 @@ static LONG CALLBACK Handler(PEXCEPTION_POINTERS info) {
         // For execute-AVs, validate via the return address (the CALL site)
         if (IsReadable(reinterpret_cast<void*>(ctx->Rsp), 8)) {
             uintptr_t retAddr = *reinterpret_cast<uint64_t*>(ctx->Rsp);
-            if (IsSelfAddr(retAddr) || IsSystemDLL(retAddr) || !IsRecoverableAddr(retAddr)) {
+            if (!t_testMode && (IsSelfAddr(retAddr) || IsSystemDLL(retAddr) || !IsRecoverableAddr(retAddr))) {
                 // Caller is in system/self code — don't recover
                 return EXCEPTION_CONTINUE_SEARCH;
             }
-            // Caller is in game/mod code — skip the RIP-based filter, let it through
+            // Caller is in game/mod code (or test mode) — skip the RIP-based filter, let it through
         } else {
             // Can't even read the stack — unrecoverable
             return EXCEPTION_CONTINUE_SEARCH;
@@ -3730,7 +3866,7 @@ static LONG CALLBACK Handler(PEXCEPTION_POINTERS info) {
     // decide whether to use function return (system DLL) or write-skip (game code).
     // The IsSystemDLL check in IsRecoverableAddr was preventing VCRUNTIME140.dll
     // crashes from being recovered at all.
-    if (!isExecuteAV && (IsSelfAddr(rip) || !IsRecoverableAddr(rip))) {
+    if (!isExecuteAV && !t_testMode && (IsSelfAddr(rip) || !IsRecoverableAddr(rip))) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
 
@@ -3763,7 +3899,7 @@ static LONG CALLBACK Handler(PEXCEPTION_POINTERS info) {
     // Note: duringLoad check at top of Handler() already returned CONTINUE_SEARCH
     uint32_t funcCascadeLimit = highToleranceSite ? BAILOUT_CASCADE_MAX : FUNC_CASCADE_MAX;
     
-    if (!isExecuteAV && funcHits > funcCascadeLimit) {
+    if (!t_testMode && !isExecuteAV && funcHits > funcCascadeLimit) {
         if (log) {
             log->critical("[VEH] FUNCTION CASCADE: {:#x} (func block {:#x}) crashed {} times (limit {}) — "
                           "same function keeps crashing, giving up{}",
@@ -3777,7 +3913,7 @@ static LONG CALLBACK Handler(PEXCEPTION_POINTERS info) {
     
     // 3. Recovery cooldown - too many recoveries too fast
     // Relax cooldown for Moon/Sky and known bailout sites (phase tracking can lag)
-    if (!highToleranceSite && !CheckRecoveryCooldown()) {
+    if (!t_testMode && !highToleranceSite && !CheckRecoveryCooldown()) {
         if (shouldLog) {
             log->warn("[VEH] Recovery cooldown active - refusing recovery for {:#x}", rip);
         }
@@ -3800,7 +3936,7 @@ static LONG CALLBACK Handler(PEXCEPTION_POINTERS info) {
     // For regular AVs (read/write): keep strict limit (3).  L1-L6 recovery
     // is more speculative and repeated failures indicate real instability.
     uint32_t cascadeLimit = isExecuteAV ? 200 : (highToleranceSite ? BAILOUT_CASCADE_MAX : 3);
-    if (hits > cascadeLimit) {
+    if (!t_testMode && hits > cascadeLimit) {
         if (log) {
             log->critical("[VEH] CASCADE: RIP {:#x} ({}+{:#x}) crashed {} times (limit {}) — "
                           "giving up",
@@ -4041,6 +4177,10 @@ size_t GetCrashCount() {
 
 void LogStats() {
     VEHExceptionHandler::LogStats();
+}
+
+VEHExceptionHandler::LayerStats GetLayerStats() {
+    return VEHExceptionHandler::GetLayerStats();
 }
 
 }  // namespace VEH

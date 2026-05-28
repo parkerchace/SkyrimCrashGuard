@@ -104,6 +104,7 @@ set(PLUGIN_SOURCES
     src/LockFreeStructures.cpp
     src/RecoveryNotifications.cpp
     src/RecoveryStatistics.cpp
+    src/CrashTestSuite.cpp
     src/MemoryPressureDetector.cpp
     src/CrosshairObserver.cpp
     src/MenuInputObserver.cpp
@@ -163,6 +164,8 @@ set(PLUGIN_HEADERS
     include/LockFreeStructures.h
     include/RecoveryNotifications.h
     include/RecoveryStatistics.h
+    include/LayerTrace.h
+    include/CrashTestSuite.h
     include/MemoryPressureDetector.h
     include/SeverityAnalyzer.h
     include/NotificationThresholdManager.h

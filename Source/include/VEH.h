@@ -13,6 +13,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include "LayerTrace.h"
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -73,6 +74,33 @@ namespace VEH {
         /// Log recovery statistics
         static void LogStats();
 
+        /// Per-layer recovery statistics snapshot
+        struct LayerStats {
+            uint64_t total;
+            uint64_t knownSite;      ///< L1  – pre-analysed known crash sites
+            uint64_t instrPattern;   ///< L1b – instruction-pattern match (Zydis)
+            uint64_t learnedSite;    ///< L2  – previously decoded, cached fix
+            uint64_t regFixup;       ///< L3  – redirect faulting register to safety buffer
+            uint64_t instrSkip;      ///< L4  – decode, zero dest, advance RIP
+            uint64_t funcReturn;     ///< L5  – synthetic function return
+            uint64_t deepWalk;       ///< L6  – deep stack walk for return address
+            uint64_t unrecoverable;  ///< Crashes that could not be recovered
+        };
+
+        /// Get snapshot of per-layer recovery statistics
+        static LayerStats GetLayerStats();
+
+        /// Allow VEH to recover exceptions whose RIP is inside CrashGuard's own
+        /// module on the calling thread.  Intended only for the internal diagnostic
+        /// test suite — call Disable when the test kernel returns.
+        static void EnableThreadTestMode();
+        static void DisableThreadTestMode();
+
+        /// Returns the LayerTrace captured during the most recent test-mode recovery
+        /// on this thread.  Valid only after a test kernel has run and been joined.
+        /// Included via forward declaration; include LayerTrace.h for the full type.
+        static CrashGuard::LayerTrace GetLastTestTrace();
+
         /// Main exception filter callback
         static LONG WINAPI ExceptionFilter(EXCEPTION_POINTERS* exceptionInfo);
 
@@ -114,5 +142,6 @@ namespace VEH {
     void Remove();
     size_t GetCrashCount();
     void LogStats();
+    VEHExceptionHandler::LayerStats GetLayerStats();
 
 }  // namespace VEH

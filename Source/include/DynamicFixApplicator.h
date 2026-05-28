@@ -6,17 +6,22 @@
 
 #pragma once
 
-#include "VEH.h"
-#include "RootCauseAnalyzer.h"
 #include <string>
 #include <vector>
-#include <cstdint>
 
 /// Dynamic Fix Applicator
-/// Applies runtime fixes to resolve crashes
+/// Provides recovery strategy metadata used by the VEH recovery chain
+/// and the pattern learning system.
+///
+/// Note: This module previously contained instruction-patching code
+/// (PatchToNOP, PatchToReturn, VirtualProtect writes to game executable memory).
+/// That code was removed because ApplyFix() had no callers outside this module
+/// and writing NOP bytes to game executable memory is unsafe and unnecessary.
+/// The VEH recovery chain modifies CPU context (registers + RIP) only and
+/// never writes to game code pages.
 namespace DynamicFix {
 
-    /// Recovery strategy types
+    /// Recovery strategy types (used by VEH for logging and pattern learning)
     enum class RecoveryStrategy {
         MeshRepair,
         MeshFallback,
@@ -34,72 +39,15 @@ namespace DynamicFix {
         Unknown
     };
 
-    /// Recovery result information
+    /// Recovery result metadata
     struct RecoveryResult {
-        bool success;
-        RecoveryStrategy strategyUsed;
+        bool success = false;
+        RecoveryStrategy strategyUsed = RecoveryStrategy::Unknown;
         std::vector<std::string> actionsPerformed;
         std::string failureReason;
     };
 
-    /// Main dynamic fix applicator class
-    class DynamicFixApplicator {
-    public:
-        /// Apply fix based on root cause analysis
-        static RecoveryResult ApplyFix(VEH::CrashContext& context,
-                                      const RootCauseAnalysis::RootCauseResult& rootCause);
-
-        /// Fix null pointer dereference
-        static bool FixNullPointer(VEH::CrashContext& context);
-
-        /// Fix missing resource
-        static bool FixMissingResource(VEH::CrashContext& context);
-
-        /// Fix script error
-        static bool FixScriptError(VEH::CrashContext& context);
-
-        /// Fix animation error
-        static bool FixAnimationError(VEH::CrashContext& context);
-
-        /// Patch instruction at crash site
-        static bool PatchInstruction(VEH::CrashContext& context);
-
-    private:
-        /// Allocate safe default value for null pointer
-        static bool AllocateSafeDefault(VEH::CrashContext& context);
-
-        /// Load fallback resource
-        static bool LoadFallbackResource(VEH::CrashContext& context);
-
-        /// Skip problematic script statement
-        static bool SkipScriptStatement(VEH::CrashContext& context);
-
-        /// Retry animation with default parameters
-        static bool RetryWithDefaults(VEH::CrashContext& context);
-
-        /// Analyze instruction at crash address
-        static bool AnalyzeInstruction(void* address, void* outInstruction);
-
-        /// Patch instruction to NOP (no operation)
-        static bool PatchToNOP(void* address, size_t length);
-
-        /// Patch instruction to return with value
-        static bool PatchToReturn(void* address, uint64_t returnValue);
-
-        /// Update instruction pointer after patch
-        static bool UpdateInstructionPointer(VEH::CrashContext& context, void* newAddress);
-
-        /// Make memory page writable for patching
-        static bool MakeMemoryWritable(void* address, size_t size, DWORD& oldProtection);
-
-        /// Restore original memory protection
-        static bool RestoreMemoryProtection(void* address, size_t size, DWORD oldProtection);
-
-        /// Flush instruction cache after patching
-        static void FlushInstructionCache(void* address, size_t size);
-    };
-
-    /// Convert recovery strategy to string
+    /// Convert recovery strategy enum to display string
     const char* RecoveryStrategyToString(RecoveryStrategy strategy);
 
 }  // namespace DynamicFix

@@ -1,4 +1,4 @@
-// Copyright (C) 2026 Parker Chace
+﻿// Copyright (C) 2026 Parker Chace
 // SPDX-License-Identifier: MIT
 //
 // This file is part of Skyrim CrashGuard.
@@ -6,6 +6,8 @@
 
 #include "ImGuiConfigMenu.h"
 #include "Config.h"
+#include "VEH.h"
+#include "CrashTestSuite.h"
 #include "HotkeyManager.h"
 #include "PerformanceMetrics.h"
 #include "BenchmarkManager.h"
@@ -257,15 +259,26 @@ namespace CrashGuard {
                 if (ImGui::BeginTabItem("Debug", nullptr, m_activeTab == Tab::Debug ? flags : 0)) {
                     m_activeTab = Tab::Debug;
                     m_forceTabSwitch = false;
-                    
+
                     // Use child window with proper sizing to leave room for bottom buttons
                     ImGui::BeginChild("DebugContent", ImVec2(0, -60), false);
                     RenderDebugTab();
                     ImGui::EndChild();
-                    
+
                     ImGui::EndTabItem();
                 }
-                
+
+                if (ImGui::BeginTabItem("Diagnostics", nullptr, m_activeTab == Tab::Diagnostics ? flags : 0)) {
+                    m_activeTab = Tab::Diagnostics;
+                    m_forceTabSwitch = false;
+
+                    ImGui::BeginChild("DiagnosticsContent", ImVec2(0, -60), false);
+                    RenderDiagnosticsTab();
+                    ImGui::EndChild();
+
+                    ImGui::EndTabItem();
+                }
+
                 ImGui::EndTabBar();
             }
 
@@ -445,13 +458,13 @@ namespace CrashGuard {
             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Animation Validation (Disabled)");
         }
         
+        // Script hook is not installed (vtable offset not yet validated).
+        // ScriptMonitor initializes data structures only — no live Papyrus interception.
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[ ]");
+        ImGui::SameLine();
         if (m_scriptMonitoring) {
-            ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "[X]");
-            ImGui::SameLine();
-            ImGui::Text("Script Monitoring");
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Script Monitoring (no VM hook installed)");
         } else {
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[ ]");
-            ImGui::SameLine();
             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Script Monitoring (Disabled)");
         }
         
@@ -490,10 +503,12 @@ namespace CrashGuard {
         ImGui::SameLine();
         ImGui::Text("Shared Mutex System");
         
-        ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "[X]");
+        // DeadlockDetector::Initialize() creates data structures only.
+        // No watchdog thread runs. AttemptBreakDeadlock() always returns false.
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[ ]");
         ImGui::SameLine();
-        ImGui::Text("Deadlock Detection");
-        
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Deadlock Detection (data structures only)");
+
         ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "[X]");
         ImGui::SameLine();
         ImGui::Text("Lock-Free Structures");
@@ -1431,119 +1446,249 @@ namespace CrashGuard {
     }
 
     void ImGuiConfigMenu::RenderRecentRecoveriesTab() {
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Recent Crash Recoveries");
-        ImGui::Separator();
-        ImGui::TextWrapped("View all crash recoveries including silent auto-recoveries. Toast notifications appear at top-right for 3-5 seconds.");
-        
-        ImGui::Spacing();
-        
+
         auto& recoverySystem = RecoveryNotifications::GetSingleton();
-        
-        // Statistics
-        ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Statistics");
-        ImGui::Spacing();
-        ImGui::Indent();
-        ImGui::Text("Total Recoveries: %zu", recoverySystem.GetTotalRecoveries());
-        ImGui::Text("Successful: %zu", recoverySystem.GetSuccessfulRecoveries());
-        ImGui::Text("Failed: %zu", recoverySystem.GetFailedRecoveries());
-        ImGui::Unindent();
-        
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
-        
-        // Clear history button
-        if (ImGui::Button("Clear History")) {
+        auto  recoveries     = recoverySystem.GetRecentRecoveries(100);
+
+        // ── Header + stats summary ───────────────────────────────────────────
+        ImGui::TextColored(ImVec4(1.f, 0.82f, 0.22f, 1.f), "Crash Recovery History");
+        ImGui::SameLine();
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 10.f);
+        if (ImGui::Button("Clear", ImVec2(0, 20)))
             recoverySystem.ClearHistory();
+        ImGui::Spacing();
+
+        {
+            size_t tot = recoverySystem.GetTotalRecoveries();
+            size_t ok  = recoverySystem.GetSuccessfulRecoveries();
+            size_t bad = recoverySystem.GetFailedRecoveries();
+            ImGui::TextColored(ImVec4(0.44f, 0.44f, 0.44f, 1.f),
+                "Session: %zu recovered,  %zu failed", ok, bad);
+            (void)tot;
         }
-        
+
         ImGui::Spacing();
         ImGui::Separator();
-        
-        // Recovery history
-        ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Recovery History (Most Recent First)");
         ImGui::Spacing();
-        
-        auto recoveries = recoverySystem.GetRecentRecoveries(50);
-        
+
         if (recoveries.empty()) {
-            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "No recoveries recorded yet.");
-        } else {
-            ImGui::BeginChild("RecoveryHistory", ImVec2(0, 400), true);
-            
-            for (size_t i = 0; i < recoveries.size(); ++i) {
-                const auto& entry = recoveries[i];
-                
-                ImGui::PushID((int)i);
-                
-                // Severity color
-                ImVec4 severityColor;
-                if (entry.severity == "Safe") {
-                    severityColor = ImVec4(0.2f, 1.0f, 0.2f, 1.0f);
-                } else if (entry.severity == "Warning") {
-                    severityColor = ImVec4(1.0f, 0.8f, 0.2f, 1.0f);
-                } else {
-                    severityColor = ImVec4(1.0f, 0.2f, 0.2f, 1.0f);
-                }
-                
-                // Header with severity and timestamp
-                ImGui::TextColored(severityColor, "[%s]", entry.severity.c_str());
-                ImGui::SameLine();
-                ImGui::Text("%s", entry.timestamp.c_str());
-                ImGui::SameLine();
-                if (entry.successful) {
-                    ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "[OK] Success");
-                } else {
-                    ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "[FAIL] Failed");
-                }
-                
-                ImGui::Indent();
-                
-                // Root cause
-                ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "Cause:");
-                ImGui::SameLine();
-                ImGui::TextWrapped("%s", entry.rootCause.c_str());
-                
-                // Strategy
-                ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "Strategy:");
-                ImGui::SameLine();
-                ImGui::Text("%s", entry.strategy.c_str());
-                
-                // Actions
-                if (!entry.actions.empty()) {
-                    ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "Actions:");
-                    ImGui::Indent();
-                    for (const auto& action : entry.actions) {
-                        ImGui::BulletText("%s", action.c_str());
-                    }
-                    ImGui::Unindent();
-                }
-                
-                // Suspected mods
-                if (!entry.suspectedMods.empty()) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "Suspected Mods:");
-                    ImGui::Indent();
-                    for (const auto& mod : entry.suspectedMods) {
-                        ImGui::BulletText("%s", mod.c_str());
-                    }
-                    ImGui::Unindent();
-                }
-                
-                ImGui::Unindent();
-                
-                // Separator between entries
-                if (i < recoveries.size() - 1) {
-                    ImGui::Spacing();
-                    ImGui::Separator();
-                    ImGui::Spacing();
-                }
-                
-                ImGui::PopID();
-            }
-            
-            ImGui::EndChild();
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.42f, 0.42f, 0.42f, 1.f),
+                "No crashes recovered yet this session.\n"
+                "When CrashGuard intercepts a crash in-game, it will appear here.");
+            return;
         }
-    }
+
+        // Persistent selection
+        static int s_selRec = 0;
+        if (s_selRec >= (int)recoveries.size()) s_selRec = 0;
+
+        const float totalH  = ImGui::GetContentRegionAvail().y;
+        const float listW   = 260.f;
+        const float detailW = ImGui::GetContentRegionAvail().x - listW - 8.f;
+
+        // ── Left: recovery list ──────────────────────────────────────────────
+        ImGui::BeginChild("RecList", ImVec2(listW, totalH), true);
+
+        for (int i = 0; i < (int)recoveries.size(); ++i) {
+            const auto& e = recoveries[i];
+            const bool  sel = (s_selRec == i);
+
+            // Full-row selectable
+            char rowId[24]; snprintf(rowId, sizeof(rowId), "##rec%d", i);
+            if (sel) {
+                ImGui::PushStyleColor(ImGuiCol_Header,        ImVec4(0.18f, 0.30f, 0.36f, 1.f));
+                ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.22f, 0.38f, 0.44f, 1.f));
+            }
+            if (ImGui::Selectable(rowId, sel, ImGuiSelectableFlags_SpanAllColumns, ImVec2(0, 17)))
+                s_selRec = i;
+            if (sel) ImGui::PopStyleColor(2);
+
+            // Status badge
+            ImGui::SameLine(5.f);
+            if (e.successful)
+                ImGui::TextColored(ImVec4(0.22f, 1.f, 0.22f, 1.f), "+");
+            else
+                ImGui::TextColored(ImVec4(1.f, 0.28f, 0.28f, 1.f), "x");
+
+            // Crash address or root cause (truncated)
+            ImGui::SameLine(20.f);
+            const std::string& label = e.crashAddr.empty() ? e.rootCause : e.crashAddr;
+            ImVec4 labelCol = sel ? ImVec4(1.f, 1.f, 1.f, 1.f) : ImVec4(0.72f, 0.72f, 0.72f, 1.f);
+            // Truncate to fit
+            char truncated[36] = {};
+            snprintf(truncated, sizeof(truncated), "%s", label.c_str());
+            ImGui::TextColored(labelCol, "%s", truncated);
+
+            // Timestamp
+            ImGui::SameLine(listW - 52.f);
+            ImGui::TextColored(ImVec4(0.34f, 0.34f, 0.34f, 1.f), "%s", e.timestamp.c_str());
+        }
+
+        ImGui::EndChild();  // RecList
+
+        // ── Right: detail ────────────────────────────────────────────────────
+        ImGui::SameLine();
+        ImGui::BeginChild("RecDetail", ImVec2(detailW, totalH), true);
+
+        const auto& e = recoveries[s_selRec];
+
+        ImGui::Spacing();
+
+        // ── Crash address (heading) ────────────────────────────────────
+        ImGui::SetWindowFontScale(1.16f);
+        if (!e.crashAddr.empty())
+            ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 1.f), "%s", e.crashAddr.c_str());
+        else
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.f), "Unknown address");
+        ImGui::SetWindowFontScale(1.f);
+
+        // ── Module — highlight non-game DLLs (likely the responsible mod) ──
+        if (!e.moduleName.empty()) {
+            bool isGameExe = (e.moduleName == "SkyrimSE.exe" ||
+                              e.moduleName == "SkyrimVR.exe"  ||
+                              e.moduleName == "Skyrim.exe");
+            ImGui::SameLine(0.f, 8.f);
+            if (isGameExe)
+                ImGui::TextColored(ImVec4(0.45f, 0.45f, 0.45f, 1.f), "(%s)", e.moduleName.c_str());
+            else
+                ImGui::TextColored(ImVec4(1.f, 0.70f, 0.20f, 1.f), "  mod: %s", e.moduleName.c_str());
+        }
+
+        ImGui::Spacing();
+
+        // ── Outcome + timestamp ────────────────────────────────────────
+        if (e.successful)
+            ImGui::TextColored(ImVec4(0.22f, 1.f, 0.22f, 1.f), "Recovered");
+        else
+            ImGui::TextColored(ImVec4(1.f, 0.30f, 0.30f, 1.f), "Not recovered");
+        ImGui::SameLine(100.f);
+        ImGui::TextColored(ImVec4(0.40f, 0.40f, 0.40f, 1.f), "%s", e.timestamp.c_str());
+
+        // ── Decoded instruction ────────────────────────────────────────
+        if (!e.decodedInstruction.empty()) {
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.44f, 0.44f, 0.44f, 1.f), "Instruction:");
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.72f, 0.90f, 0.60f, 1.f));
+            ImGui::TextUnformatted(e.decodedInstruction.c_str());
+            ImGui::PopStyleColor();
+        }
+
+        // ── Access details ─────────────────────────────────────────────
+        if (e.accessType >= 0) {
+            ImGui::Spacing();
+            const char* typeLbl = (e.accessType == 0) ? "Read from"
+                                : (e.accessType == 1) ? "Write to"
+                                : (e.accessType == 8) ? "Execute"
+                                : "Access";
+
+            bool isNullRegion = (e.accessAddress < 0x10000);
+            char addrBuf[64];
+            if (e.accessAddress == 0)
+                snprintf(addrBuf, sizeof(addrBuf), "null (0x0)");
+            else if (isNullRegion)
+                snprintf(addrBuf, sizeof(addrBuf), "null + 0x%llX",
+                         (unsigned long long)e.accessAddress);
+            else
+                snprintf(addrBuf, sizeof(addrBuf), "0x%llX",
+                         (unsigned long long)e.accessAddress);
+
+            ImGui::TextColored(ImVec4(0.44f, 0.44f, 0.44f, 1.f), "%s", typeLbl);
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.f, 0.60f, 0.60f, 1.f), "%s", addrBuf);
+        }
+
+        // ── Register affected ──────────────────────────────────────────
+        if (!e.affectedRegister.empty()) {
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.44f, 0.44f, 0.44f, 1.f), "Register zeroed:");
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.80f, 0.80f, 1.f, 1.f), "%s", e.affectedRegister.c_str());
+        }
+
+        // ── Suspected mods ─────────────────────────────────────────────
+        if (!e.suspectedMods.empty()) {
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(1.f, 0.68f, 0.22f, 1.f), "Suspected mods:");
+            for (const auto& mod : e.suspectedMods)
+                ImGui::BulletText("%s", mod.c_str());
+        }
+
+        // ── Recovery layer section ─────────────────────────────────────
+        using LID = CrashGuard::LayerID;
+        const bool hasLayer = (e.layerUsed != LID::Unrecovered);
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        if (!hasLayer) {
+            ImGui::TextColored(ImVec4(1.f, 0.38f, 0.38f, 1.f), "Not recovered");
+            ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.55f, 0.55f, 1.f));
+            ImGui::TextWrapped("%s", CrashGuard::GetLayerShortDesc(LID::Unrecovered));
+            ImGui::PopStyleColor();
+        } else {
+            // Layer badge + name
+            ImGui::TextColored(ImVec4(0.38f, 0.78f, 1.f, 1.f), "How CrashGuard fixed it:");
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.22f, 1.f, 0.22f, 1.f), "[OK]");
+            ImGui::SameLine(50.f);
+            ImGui::SetWindowFontScale(1.08f);
+            ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 1.f), "%s",
+                CrashGuard::GetLayerDisplayName(e.layerUsed));
+            ImGui::SetWindowFontScale(1.f);
+
+            // Source location
+            auto loc = CrashGuard::GetLayerCodeLocation(e.layerUsed);
+            if (loc.file && loc.line > 0) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0.36f, 0.36f, 0.40f, 1.f),
+                    "  (%s : %d)", loc.file, loc.line);
+            }
+
+            ImGui::Spacing();
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // Full code journey
+            int jCount = 0;
+            const CrashGuard::JourneyStep* jSteps =
+                CrashGuard::GetLayerJourney(e.layerUsed, &jCount);
+            for (int ji = 0; ji < jCount; ++ji) {
+                const auto& js = jSteps[ji];
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.34f, 0.34f, 0.38f, 1.f));
+                if (js.lineTo > 0 && js.lineTo != js.lineFrom)
+                    ImGui::Text("  %s : %d-%d", js.file, js.lineFrom, js.lineTo);
+                else
+                    ImGui::Text("  %s : %d", js.file, js.lineFrom);
+                ImGui::PopStyleColor();
+                ImGui::SameLine(0.f, 6.f);
+                ImGui::TextColored(ImVec4(0.88f, 0.88f, 0.88f, 1.f), "%s", js.heading);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.50f, 0.50f, 1.f));
+                ImGui::TextWrapped("  %s", js.explanation);
+                ImGui::PopStyleColor();
+                ImGui::Spacing();
+                if (js.code && js.code[0]) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.72f, 0.88f, 0.60f, 1.f));
+                    ImGui::TextUnformatted(js.code);
+                    ImGui::PopStyleColor();
+                }
+                if (ji < jCount - 1) {
+                    ImGui::Spacing();
+                    ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(0.18f, 0.18f, 0.20f, 1.f));
+                    ImGui::Separator();
+                    ImGui::PopStyleColor();
+                    ImGui::Spacing();
+                }
+            }
+        }
+
+        ImGui::EndChild();  // RecDetail
+  }
 
     void ImGuiConfigMenu::RenderResourceManagementTab() {
         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Resource Management Systems");
@@ -2001,30 +2146,16 @@ namespace CrashGuard {
     }
 
     void ImGuiConfigMenu::RenderRecoveryTab() {
-        // Consolidated recovery view: history (left) + severity guide + stats (right)
-        if (ImGui::BeginTable("RecoveryTable", 2, ImGuiTableFlags_SizingStretchProp)) {
-            // Left column: Recent recoveries
-            ImGui::TableNextColumn();
+        // Full-width recovery history (master-detail).
+        // The severity guide has been removed — it squished the detail panel
+        // and added little value next to the real crash data already shown.
+        {
             RenderRecentRecoveriesTab();
 
-            // Right column: Severity guide and recovery statistics
-            ImGui::TableNextColumn();
-            ImGui::BeginChild("RecoveryRight", ImVec2(0, 0), false);
-            ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.2f, 1.0f), "Severity Guide & Recovery Statistics");
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
-
-            RenderSeverityGuideTab();
-
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
-
-            RenderRecoveryStatisticsTab();
-
-            ImGui::EndChild();
-            ImGui::EndTable();
+            // Stats are available in the Overview tab; nothing extra needed here.
+            if (false) {
+                RenderRecoveryStatisticsTab();
+            }
         }
     }
 
@@ -2344,9 +2475,548 @@ namespace CrashGuard {
             // Switch to consolidated recovery tab
             m_activeTab = Tab::Recovery;
         }
-        
+
         ImGui::EndChild();
     }
 
+    // ─── Diagnostics Tab ──────────────────────────────────────────────────────
+    // VEH layer statistics + animated crash-recovery test suite (14 tests).
+    //
+    // Animation design:
+    //   Each recovery layer in the staircase reveals sequentially (0.30 s / layer).
+    //   The newly-revealed layer flashes bright then settles to green (handled) or
+    //   amber (tried, gave up).  Pending layers are ghosted.  The code-snippet pane
+    //   on the right tracks the current animation frame automatically; hovering a
+    //   specific layer overrides it.
+    // ─────────────────────────────────────────────────────────────────────────
+    void ImGuiConfigMenu::RenderDiagnosticsTab() {
+
+        // ── VEH Recovery Statistics (collapsible) ──────────────────────────
+        bool statsOpen = ImGui::TreeNodeEx("##stats_hdr",
+            ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed,
+            "  Live Recovery Statistics");
+        if (statsOpen) {
+            ImGui::Spacing();
+            auto stats = VEH::VEHExceptionHandler::GetLayerStats();
+            if (ImGui::BeginTable("VEHStats", 2,
+                    ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                    ImGuiTableFlags_SizingStretchProp)) {
+                ImGui::TableSetupColumn("What CrashGuard did",  ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableSetupColumn("Times fired",          ImGuiTableColumnFlags_WidthFixed, 90.f);
+                ImGui::TableHeadersRow();
+                auto row = [](const char* n, uint64_t v, bool hi = false) {
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    if (hi) ImGui::TextColored(ImVec4(0.9f, 1.f, 0.6f, 1.f), "%s", n);
+                    else    ImGui::TextUnformatted(n);
+                    ImGui::TableNextColumn();
+                    if (v > 0) ImGui::TextColored(ImVec4(0.4f, 1.f, 0.4f, 1.f), "%llu", (unsigned long long)v);
+                    else       ImGui::TextColored(ImVec4(0.4f, 0.4f, 0.4f, 1.f), "0");
+                };
+                row("Crashes prevented (all methods)",      stats.total,        true);
+                row("  Pre-programmed known fix",           stats.knownSite);
+                row("  Instruction decoded + skipped",      stats.instrPattern);
+                row("  Remembered from earlier in session", stats.learnedSite);
+                row("  Redirected bad pointer",             stats.regFixup);
+                row("  Decoded + destination zeroed",       stats.instrSkip);
+                row("  Returned from crashing function",    stats.funcReturn);
+                row("  Found return point in stack",        stats.deepWalk);
+                row("Not recovered (passed to OS)",         stats.unrecoverable);
+                ImGui::EndTable();
+            }
+            ImGui::Spacing();
+
+            // ── Pattern Learning explainer ──────────────────────────────
+            bool learnOpen = ImGui::TreeNodeEx("##learn_hdr",
+                ImGuiTreeNodeFlags_Framed,
+                "  How CrashGuard Learns");
+            if (learnOpen) {
+                ImGui::Spacing();
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.9f, 0.7f, 1.f));
+                ImGui::TextUnformatted("In-session memory  (always active)");
+                ImGui::PopStyleColor();
+                ImGui::TextWrapped(
+                    "The first time CrashGuard fixes a crash it stores the instruction "
+                    "address, decoded length, and which register was zeroed in a small "
+                    "in-memory cache (up to 64 slots). If the exact same code crashes "
+                    "again this session, recovery is instant  -  no Zydis decode, no "
+                    "layer cascade. The 'Remembered from earlier in session' counter "
+                    "above shows how often that fast path fired.");
+                ImGui::Spacing();
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.9f, 0.7f, 1.f));
+                ImGui::TextUnformatted("Between-session analytics  (file-based)");
+                ImGui::PopStyleColor();
+                ImGui::TextWrapped(
+                    "CrashGuard also writes anonymised crash-site data to patterns.json. "
+                    "This lets you see which crash addresses recur across play sessions "
+                    "and is useful for identifying mods that crash consistently. "
+                    "It does NOT change recovery speed or strategy  -  the file is "
+                    "analytics only, not a lookup table used during recovery.");
+                ImGui::Spacing();
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.f));
+                ImGui::TextWrapped(
+                    "In short: the in-memory cache is real and measurable (see counter). "
+                    "The file log is a record, not a brain.");
+                ImGui::PopStyleColor();
+                ImGui::Spacing();
+                ImGui::TreePop();
+            }
+
+            ImGui::TreePop();
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        // ── Persistent state ────────────────────────────────────────────────
+        static CrashTestSuite s_suite;
+        static int  s_selTest = -1;
+        static double s_animStart[CrashTestSuite::NUM_TESTS];
+        static bool   s_animInit = false;
+        if (!s_animInit) {
+            for (auto& t : s_animStart) t = -999.0;
+            s_animInit = true;
+        }
+
+        // Synthetic trace builder (used until real LayerTrace emission is wired in VEH.cpp)
+        static auto buildTrace = [](int idx, const TestResult& r) -> CrashGuard::LayerTrace {
+            using LID = CrashGuard::LayerID;
+            CrashGuard::LayerTrace tr;
+            if (!r.ran) return tr;
+            tr.exceptionDesc = r.exceptionType;
+            auto add = [&](LID id, const char* detail, bool ok) {
+                tr.events.push_back({ id, std::string(detail), ok });
+            };
+            if (!r.vehIntercepted) {
+                add(LID::Unrecovered, "CrashGuard did not intercept this exception.", false);
+                return tr;
+            }
+            switch (idx) {
+            case 0: add(LID::UR_ZeroedReg,  "Read from nullptr - answered with zero, execution continued.", true); break;
+            case 1: add(LID::UR_WriteSkip,  "Write to nullptr - silently dropped, game never knew it failed.", true); break;
+            case 2: add(LID::ExecAV_Return, "Call through null vtable - call cancelled, RAX set to 0, caller continued.", true); break;
+            case 3:
+                add(LID::UR_ZeroedReg,  "TEST instruction sets a CPU flag only - no output register to zero.", false);
+                add(LID::UR_FuncReturn, "L5 skipped in test mode - SEH frame would corrupt RSP.", false);
+                add(LID::UR_DeepWalk,   "L6 skipped in test mode - same reason.", false);
+                add(LID::UR_FlagsSkip,  "RIP advanced past the TEST instruction. Game takes the false/not-found branch.", true);
+                break;
+            case 4: add(LID::UR_ZeroedReg,  "Read vtable pointer from null object - zeroed so the read returned null safely.", true); break;
+            case 5: add(LID::UR_WriteSkip,  "Write to 0xDEADBEEF (poison sentinel address) - dropped silently.", true); break;
+            case 6: add(LID::UR_ZeroedReg,  "Read at offset +0x2A0 on nullptr (partially loaded struct) - answered with zero.", true); break;
+            case 7: add(LID::UR_ZeroedReg,  "10 sequential null reads in a loop - each intercepted and answered with zero.", true); break;
+            case 8:
+                add(LID::UR_ZeroedReg, "Crash 1 of 2: read at +0x4 on nullptr - answered with zero.", true);
+                add(LID::UR_ZeroedReg, "Crash 2 of 2: read at +0x14 on nullptr 15ms later - cascade limiter bypassed in test mode, caught.", true);
+                break;
+            case 9:
+                add(LID::UR_ZeroedReg,  "TEST instruction only sets a CPU flag - no output register to zero.", false);
+                add(LID::UR_FuncReturn, "L5 skipped in test mode - SEH frame would corrupt RSP.", false);
+                add(LID::UR_DeepWalk,   "L6 skipped in test mode - same reason.", false);
+                add(LID::UR_FlagsSkip,  "RIP advanced past TEST BYTE PTR [r14+0x109],0x04 (mirrors SkyrimSE.exe+14F400E). Shadow system takes 'not visible' path. Crash pattern: null actor pointer in BSShadowFrustumLight during interior cell load.", true);
+                break;
+            default: break;
+            }
+            return tr;
+        };
+
+        // ── Header ─────────────────────────────────────────────────────────
+        ImGui::TextColored(ImVec4(0.95f, 0.95f, 0.95f, 1.f), "Crash Recovery Tests");
+        ImGui::Spacing();
+
+        // ── Tier selector ───────────────────────────────────────────────────
+        {
+            TestTier curTier = CrashTestSuite::GetTestTier();
+
+            ImGui::TextColored(ImVec4(0.55f, 0.55f, 0.55f, 1.f), "Test tier:");
+            ImGui::SameLine();
+
+            // Demo
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                curTier == TestTier::Demo
+                    ? ImVec4(0.30f, 1.00f, 0.30f, 1.f)
+                    : ImVec4(0.60f, 0.60f, 0.60f, 1.f));
+            if (ImGui::RadioButton("Demo##tier", curTier == TestTier::Demo))
+                CrashTestSuite::SetTestTier(TestTier::Demo);
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Safe demo mode.\n"
+                    "Crashes run inside CrashGuard.dll with __try safety net and test-mode\n"
+                    "bypasses active.  Tests the mechanism — not real in-game conditions.");
+
+            ImGui::SameLine();
+
+            // Real Conditions
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                curTier == TestTier::RealConditions
+                    ? ImVec4(1.00f, 0.80f, 0.25f, 1.f)
+                    : ImVec4(0.60f, 0.60f, 0.60f, 1.f));
+            if (ImGui::RadioButton("Real Conditions##tier", curTier == TestTier::RealConditions))
+                CrashTestSuite::SetTestTier(TestTier::RealConditions);
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Honest test of what VEH actually does mid-game.\n"
+                    "Crash stubs run in allocated memory (RIP outside CrashGuard.dll),\n"
+                    "real cascade and cooldown rules apply, no test-mode bypasses.\n"
+                    "__try safety net retained — game will NOT crash if VEH fails.");
+
+            ImGui::SameLine();
+
+            // Live
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                curTier == TestTier::Live
+                    ? ImVec4(1.00f, 0.32f, 0.32f, 1.f)
+                    : ImVec4(0.60f, 0.60f, 0.60f, 1.f));
+            if (ImGui::RadioButton("Live##tier", curTier == TestTier::Live))
+                CrashTestSuite::SetTestTier(TestTier::Live);
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "No safety net.\n"
+                    "If VEH fails to recover the crash, the game crashes to desktop.\n"
+                    "Save your game before running any test in this mode.\n"
+                    "Run All is disabled — run tests one at a time.");
+
+            // Live warning inline
+            if (curTier == TestTier::Live) {
+                ImGui::SameLine();
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.00f, 0.32f, 0.32f, 1.f));
+                ImGui::TextUnformatted("  Save your game. CTD if VEH fails.");
+                ImGui::PopStyleColor();
+            }
+        }
+        ImGui::Spacing();
+
+        // ── Buttons: Run All + Clear ────────────────────────────────────────
+        {
+            const bool isLive = (CrashTestSuite::GetTestTier() == TestTier::Live);
+            if (isLive) {
+                // Grayed-out disabled button
+                ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.16f, 0.16f, 0.16f, 1.f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.16f, 0.16f, 0.16f, 1.f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.16f, 0.16f, 0.16f, 1.f));
+                ImGui::PushStyleColor(ImGuiCol_Text,          ImVec4(0.35f, 0.35f, 0.35f, 1.f));
+                ImGui::Button("  Run All  ", ImVec2(0, 22));
+                ImGui::PopStyleColor(4);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Run All is disabled in Live mode.\nRun tests individually — one at a time.");
+            } else {
+                if (ImGui::Button("  Run All  ", ImVec2(0, 22))) {
+                    for (int i = 0; i < CrashTestSuite::NUM_TESTS; ++i) {
+                        s_suite.RunTest(i);
+                        s_animStart[i] = ImGui::GetTime();
+                    }
+                    if (s_selTest < 0) s_selTest = 0;
+                }
+            }
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.30f, 0.12f, 0.12f, 1.f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.48f, 0.16f, 0.16f, 1.f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.62f, 0.20f, 0.20f, 1.f));
+            if (ImGui::Button("Clear", ImVec2(0, 22))) {
+                s_suite   = CrashTestSuite{};
+                s_selTest = -1;
+                for (auto& t : s_animStart) t = -999.0;
+            }
+            ImGui::PopStyleColor(3);
+        }
+        ImGui::Spacing();
+
+        // Layout split
+        const float totalH  = ImGui::GetContentRegionAvail().y;
+        const float listW   = 268.f;
+        const float detailW = ImGui::GetContentRegionAvail().x - listW - 8.f;
+        const int   VEH_N   = CrashTestSuite::SYSTEM_TEST_START;
+        const int   SYS_N   = CrashTestSuite::NUM_TESTS - VEH_N;
+
+        // ── Left: test list ─────────────────────────────────────────────────
+        ImGui::BeginChild("DiagList", ImVec2(listW, totalH), true);
+
+        auto renderGroup = [&](const char* label, int first, int count) {
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.82f, 0.82f, 0.30f, 1.f), "%s", label);
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            for (int i = first; i < first + count; ++i) {
+                const TestResult& r  = s_suite.GetResult(i);
+                const bool        sel = (s_selTest == i);
+
+                // Full-row selectable (invisible, just provides highlight + click)
+                char rowId[24]; snprintf(rowId, sizeof(rowId), "##row%d", i);
+                if (sel) {
+                    ImGui::PushStyleColor(ImGuiCol_Header,        ImVec4(0.18f, 0.32f, 0.18f, 1.f));
+                    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.22f, 0.40f, 0.22f, 1.f));
+                }
+                if (ImGui::Selectable(rowId, sel, ImGuiSelectableFlags_SpanAllColumns, ImVec2(0, 18)))
+                    s_selTest = i;
+                if (sel) ImGui::PopStyleColor(2);
+
+                // Overlay: status glyph
+                ImGui::SameLine(6.f);
+                if      (!r.ran)   ImGui::TextColored(ImVec4(0.36f, 0.36f, 0.36f, 1.f), "o");
+                else if (r.passed) ImGui::TextColored(ImVec4(0.22f, 1.f,   0.22f, 1.f), "+");
+                else               ImGui::TextColored(ImVec4(1.f,   0.26f, 0.26f, 1.f), "x");
+
+                // Name
+                ImGui::SameLine(24.f);
+                ImVec4 nameCol = sel      ? ImVec4(1.f,    1.f,    1.f,    1.f)
+                               : !r.ran   ? ImVec4(0.58f,  0.58f,  0.58f,  1.f)
+                               : r.passed ? ImVec4(0.80f,  1.f,    0.80f,  1.f)
+                                          : ImVec4(1.f,    0.66f,  0.66f,  1.f);
+                ImGui::TextColored(nameCol, "%s", r.name.c_str());
+
+                // Elapsed time + tier badge (VEH tests only)
+                if (r.ran) {
+                    ImGui::SameLine(listW - 78.f);
+                    ImGui::TextColored(ImVec4(0.38f, 0.38f, 0.38f, 1.f), "%.1fms", r.elapsedMs);
+
+                    if (i < CrashTestSuite::SYSTEM_TEST_START) {
+                        // D = Demo (green-ish), R = Real Conditions (amber), L = Live (red)
+                        ImVec4 tCol;
+                        char   tChar = 'D';
+                        if      (r.tierUsed == TestTier::RealConditions) { tCol = {1.f, 0.80f, 0.25f, 0.9f}; tChar = 'R'; }
+                        else if (r.tierUsed == TestTier::Live)            { tCol = {1.f, 0.32f, 0.32f, 0.9f}; tChar = 'L'; }
+                        else                                               { tCol = {0.38f, 0.70f, 0.38f, 0.8f}; tChar = 'D'; }
+                        ImGui::SameLine(listW - 22.f);
+                        ImGui::TextColored(tCol, "%c", tChar);
+                        if (ImGui::IsItemHovered()) {
+                            const char* tip =
+                                (r.tierUsed == TestTier::RealConditions)
+                                    ? "Result from Real Conditions tier\n(real cascade/cooldown, no test-mode bypasses)"
+                                : (r.tierUsed == TestTier::Live)
+                                    ? "Result from Live tier\n(no __try safety net)"
+                                    : "Result from Demo tier\n(test-mode bypasses active)";
+                            ImGui::SetTooltip("%s", tip);
+                        }
+                    }
+                }
+            }
+            ImGui::Spacing();
+        };
+
+        renderGroup("Crash Recovery (VEH)", 0,     VEH_N);
+        renderGroup("System Health",         VEH_N, SYS_N);
+        ImGui::EndChild();  // DiagList
+
+        // ── Right: detail panel ─────────────────────────────────────────────
+        ImGui::SameLine();
+        ImGui::BeginChild("DiagDetail", ImVec2(detailW, totalH), true);
+
+        if (s_selTest < 0 || s_selTest >= CrashTestSuite::NUM_TESTS) {
+            ImGui::Spacing();
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.42f, 0.42f, 0.42f, 1.f),
+                "Select a test from the list to read what it does,\n"
+                "then run it to see CrashGuard intercept the crash in real time.");
+            ImGui::EndChild();
+            return;
+        }
+
+        const TestResult& r  = s_suite.GetResult(s_selTest);
+        const double      now = ImGui::GetTime();
+        const float       age = (float)(now - s_animStart[s_selTest]);
+
+        // Test name
+        ImGui::Spacing();
+        ImGui::SetWindowFontScale(1.18f);
+        ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 1.f), "%s", r.name.c_str());
+        ImGui::SetWindowFontScale(1.f);
+        ImGui::Spacing();
+
+        // Description
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.70f, 0.87f, 1.f, 1.f));
+        ImGui::TextWrapped("%s", r.description.c_str());
+        ImGui::PopStyleColor();
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.44f, 0.44f, 0.44f, 1.f), "Exception type: %s", r.exceptionType.c_str());
+        ImGui::Spacing();
+
+        // Run button — large + green before first run, subdued "Run Again" after
+        if (!r.ran) {
+            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.10f, 0.34f, 0.10f, 1.f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.15f, 0.52f, 0.15f, 1.f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.20f, 0.70f, 0.20f, 1.f));
+            char btnId[32]; snprintf(btnId, sizeof(btnId), "  Run Test  ##d%d", s_selTest);
+            if (ImGui::Button(btnId, ImVec2(0, 26))) {
+                s_suite.RunTest(s_selTest);
+                s_animStart[s_selTest] = ImGui::GetTime();
+            }
+            ImGui::PopStyleColor(3);
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.16f, 0.16f, 0.16f, 1.f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.24f, 0.24f, 0.24f, 1.f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.32f, 0.32f, 0.32f, 1.f));
+            char btnId[32]; snprintf(btnId, sizeof(btnId), "Run Again##d%d", s_selTest);
+            if (ImGui::Button(btnId)) {
+                s_suite.RunTest(s_selTest);
+                s_animStart[s_selTest] = ImGui::GetTime();
+            }
+            ImGui::PopStyleColor(3);
+        }
+
+        if (!r.ran) { ImGui::EndChild(); return; }
+
+        // Result
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        ImGui::SetWindowFontScale(1.24f);
+        if (r.passed)
+            ImGui::TextColored(ImVec4(0.22f, 1.f, 0.22f, 1.f), "PASS");
+        else
+            ImGui::TextColored(ImVec4(1.f, 0.28f, 0.28f, 1.f), "FAIL");
+        ImGui::SetWindowFontScale(1.f);
+        ImGui::SameLine(66.f);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5.f);
+        ImGui::TextColored(ImVec4(0.44f, 0.44f, 0.44f, 1.f), "%.2f ms", r.elapsedMs);
+
+        ImGui::Spacing();
+        ImGui::PushStyleColor(ImGuiCol_Text,
+            r.passed ? ImVec4(0.80f, 1.f, 0.80f, 1.f) : ImVec4(1.f, 0.70f, 0.70f, 1.f));
+        ImGui::TextWrapped("%s", r.resultMessage.c_str());
+        ImGui::PopStyleColor();
+
+        if (r.vehIntercepted && r.crashCountAfter > r.crashCountBefore) {
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.38f, 0.82f, 0.38f, 1.f),
+                "Crash counter: %zu -> %zu",
+                r.crashCountBefore, r.crashCountAfter);
+        }
+
+        // Recovery chain
+        CrashGuard::LayerTrace trace = r.layerTrace.empty()
+            ? buildTrace(s_selTest, r) : r.layerTrace;
+        if (trace.empty()) { ImGui::EndChild(); return; }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.38f, 0.76f, 1.f, 1.f), "Recovery chain:");
+        ImGui::Spacing();
+
+        const int   nLayers  = (int)trace.events.size();
+        static constexpr float STEP_DELAY = 0.30f;
+        static constexpr float PULSE_DUR  = 0.55f;
+
+        const int visUpTo = (age < 0.f) ? -1
+            : std::min((int)(age / STEP_DELAY), nLayers - 1);
+
+        const float availH  = ImGui::GetContentRegionAvail().y;
+        const float stepsW  = detailW * 0.40f;
+        const float codeW   = ImGui::GetContentRegionAvail().x - stepsW - 8.f;
+        const float paneH   = std::max(availH, 10.f);
+
+        // Steps pane
+        ImGui::BeginChild("Steps", ImVec2(stepsW, paneH), false);
+        for (int ei = 0; ei < nLayers; ++ei) {
+            const auto& ev     = trace.events[ei];
+            const float layAge = age - ei * STEP_DELAY;
+            const bool  vis    = (layAge >= 0.f);
+            const bool  pulse  = vis && (layAge < PULSE_DUR);
+            const float flash  = pulse ? (1.f - layAge / PULSE_DUR) : 0.f;
+
+            if (ei > 0)
+                ImGui::TextColored({ 0.28f, 0.28f, 0.28f, vis ? 0.65f : 0.16f }, "  |");
+
+            ImVec4 badgeCol, nameCol;
+            if (!vis) {
+                badgeCol = nameCol = { 0.24f, 0.24f, 0.24f, 0.32f };
+            } else if (ev.handled) {
+                badgeCol = nameCol = { 0.2f + flash*0.8f, 1.f, 0.2f + flash*0.3f, 1.f };
+            } else {
+                badgeCol = { 1.f, 0.55f + flash*0.45f, 0.1f + flash*0.2f, 1.f };
+                nameCol  = { 0.70f, 0.50f, 0.20f, vis ? 1.f : 0.32f };
+            }
+
+            ImGui::TextColored(badgeCol, "  %s", ev.handled ? "[OK]" : "[ ]");
+            ImGui::SameLine(56.f);
+            ImGui::TextColored(nameCol, "%s", CrashGuard::GetLayerDisplayName(ev.id));
+
+            if (vis && !ev.detail.empty()) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.44f, 0.44f, 0.44f, 1.f));
+                ImGui::TextWrapped("       %s", ev.detail.c_str());
+                ImGui::PopStyleColor();
+                ImGui::Spacing();
+            }
+        }
+        ImGui::EndChild();  // Steps
+
+        // Code pane — full journey for the last revealed layer
+        ImGui::SameLine();
+        ImGui::BeginChild("Code", ImVec2(codeW, paneH), true);
+
+        if (visUpTo >= 0 && visUpTo < nLayers) {
+            const auto& ev    = trace.events[visUpTo];
+            const float lAge  = age - visUpTo * STEP_DELAY;
+            const float flash = (lAge >= 0.f && lAge < PULSE_DUR) ? (1.f - lAge / PULSE_DUR) : 0.f;
+
+            // Header: layer name (crash-specific detail from ev.detail)
+            ImVec4 hdrCol = ev.handled
+                ? ImVec4{ 0.2f + flash*0.8f, 1.f, 0.2f + flash*0.3f, 1.f }
+                : ImVec4{ 0.76f, 0.44f, 0.10f, 1.f };
+
+            ImGui::SetWindowFontScale(1.06f);
+            ImGui::TextColored(hdrCol, "%s", CrashGuard::GetLayerDisplayName(ev.id));
+            ImGui::SetWindowFontScale(1.f);
+            if (!ev.detail.empty()) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.70f, 0.86f, 1.f, 1.f));
+                ImGui::TextWrapped("%s", ev.detail.c_str());
+                ImGui::PopStyleColor();
+            }
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // Full call journey: every source step touched for this layer
+            int jCount = 0;
+            const CrashGuard::JourneyStep* jSteps =
+                CrashGuard::GetLayerJourney(ev.id, &jCount);
+
+            for (int ji = 0; ji < jCount; ++ji) {
+                const auto& js = jSteps[ji];
+
+                // Step badge + file:line
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.34f, 0.34f, 0.38f, 1.f));
+                if (js.lineTo > 0 && js.lineTo != js.lineFrom)
+                    ImGui::Text("  %s : %d-%d", js.file, js.lineFrom, js.lineTo);
+                else
+                    ImGui::Text("  %s : %d", js.file, js.lineFrom);
+                ImGui::PopStyleColor();
+
+                // Step heading
+                ImGui::SameLine(0.f, 6.f);
+                ImGui::TextColored(ImVec4(0.90f, 0.90f, 0.90f, 1.f), "%s", js.heading);
+
+                // One-sentence explanation
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.52f, 0.52f, 0.52f, 1.f));
+                ImGui::TextWrapped("  %s", js.explanation);
+                ImGui::PopStyleColor();
+                ImGui::Spacing();
+
+                // Code block
+                if (js.code && js.code[0]) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.72f, 0.88f, 0.60f, 1.f));
+                    ImGui::TextUnformatted(js.code);
+                    ImGui::PopStyleColor();
+                }
+
+                if (ji < jCount - 1) {
+                    ImGui::Spacing();
+                    ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(0.20f, 0.20f, 0.22f, 1.f));
+                    ImGui::Separator();
+                    ImGui::PopStyleColor();
+                    ImGui::Spacing();
+                }
+            }
+        }
+
+        ImGui::EndChild();  // Code
+        ImGui::EndChild();  // DiagDetail
+
+    }
 
 }

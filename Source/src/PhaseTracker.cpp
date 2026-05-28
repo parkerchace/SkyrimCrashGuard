@@ -149,7 +149,7 @@ namespace PhaseTracking {
                      GetStatusIcon(s_componentStatus.configLoaded));
         spdlog::info("║  {} MeshValidator ready                                      ║", 
                      GetStatusIcon(s_componentStatus.meshValidatorReady));
-        spdlog::info("║  {} ScriptMonitor ready                                      ║", 
+        spdlog::info("║  {} ScriptMonitor initialized (no VM hook — data only)       ║",
                      GetStatusIcon(s_componentStatus.scriptMonitorReady));
         spdlog::info("║  {} Hooks installed ({}/{})                                    ║", 
                      GetStatusIcon(s_componentStatus.hooksInstalled),

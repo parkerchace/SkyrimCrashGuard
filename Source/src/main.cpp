@@ -405,10 +405,14 @@ namespace {
             status.vehActive = false;
         }
 
-        // ── Start deadlock watchdog thread ──
+        // ── Initialize deadlock detector data structures ──
+        // NOTE: DeadlockDetector::Initialize() allocates tracking containers and
+        // sets the enabled flag.  It does NOT start a watchdog thread; no thread
+        // calls CheckForDeadlock() on a timer.  AttemptBreakDeadlock() always
+        // returns false in the current implementation.
         if (!Config::Get().safeMode && Config::Get().vehEnabled) {
             ThreadSafety::DeadlockDetector::Initialize();
-            if (log) log->info("Deadlock watchdog thread started (checks every 2s)");
+            if (log) log->info("Deadlock detector initialized (data structures only — no watchdog thread)");
         }
 
         // Note: ImGui Present hook will be installed at kDataLoaded event

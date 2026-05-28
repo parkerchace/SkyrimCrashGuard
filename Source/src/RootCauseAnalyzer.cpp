@@ -79,7 +79,7 @@ static const SignaturePattern s_signatures[] = {
     { "GridCellArray", CrashCategory::Cell, "Grid cell management" },
     { "LoadedAreaBound", CrashCategory::Cell, "Cell boundary management" },
     
-    // Interior cell lighting signatures (Visentinel crash patterns)
+    // Interior cell shadow/visibility signatures (null actor in BSShadowFrustumLight pattern)
     { "BSShadowFrustumLight", CrashCategory::Cell, "Interior shadow frustum lighting" },
     { "BSLightingShaderProperty", CrashCategory::Cell, "Interior lighting shader" },
     { "NiPointLight", CrashCategory::Cell, "Interior point light rendering" },

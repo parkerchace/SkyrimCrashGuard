@@ -592,41 +592,30 @@ namespace FunctionHooks {
         HookResult result;
         result.hookName = "ScriptExecutionHook";
         result.success = false;
-        
-        spdlog::info("ScriptExecutionHook: Installing Papyrus VM execution hook");
-        
-        // Hook the BSScript::Internal::VirtualMachine execution functions
-        // We'll hook the main script execution entry point that processes tasklets
-        
-        try {
-            // Known REL::IDs from CommonLibSSE for script-related hooks:
-            //   BSScript::NF_util::NativeFunctionBase::Call: RELOCATION_ID(97923, 104651)
-            //   SkyrimVM::QueuePostRenderCall: RELOCATION_ID(53144, 53955)
-            //   SkyrimVM::RelayEvent: RELOCATION_ID(53221, 54033)
-            //
-            // For VR, hardcoded offset needed from crash logs (see crash log 98130+0x776)
-            //
-            // The script execution hook intercepts script calls to catch runaway scripts,
-            // but this is already handled by ScriptMonitor checking execution time.
-            // Making this a true hook requires identifying the exact function entry point.
-            
-            spdlog::info("ScriptExecutionHook: Available REL::IDs:");
-            spdlog::info("  NativeFunctionBase::Call = SE(97923)/AE(104651)");
-            spdlog::info("  SkyrimVM::QueuePostRenderCall = SE(53144)/AE(53955)");
-            
-            // For now, mark as ready - ScriptMonitor provides equivalent protection via polling
-            result.success = true;
-            result.errorMessage = "ScriptMonitor provides runtime protection; direct hook optional";
-            
-            spdlog::info("ScriptExecutionHook: ScriptMonitor active for script timeout detection");
-            
-            return result;
-            
-        } catch (const std::exception& e) {
-            result.errorMessage = fmt::format("Exception during script hook installation: {}", e.what());
-            spdlog::error("ScriptExecutionHook: {}", result.errorMessage);
-            return result;
-        }
+
+        // No Papyrus VM hook is installed.
+        //
+        // A vtable hook on BSScript::Internal::VirtualMachine would require
+        // a stable vtable offset that hasn't been validated against live crash
+        // data across SE/AE/VR.  Installing a bad vtable hook would crash the
+        // game deterministically.
+        //
+        // Known REL::IDs for future implementation:
+        //   NativeFunctionBase::Call  = SE(97923) / AE(104651)
+        //   SkyrimVM::QueuePostRenderCall = SE(53144) / AE(53955)
+        //   SkyrimVM::RelayEvent      = SE(53221) / AE(54033)
+        //
+        // Hook_ExecuteScript() exists in this file but is unreachable because
+        // no vtable write was ever performed to route calls through it.
+        // ScriptMonitor::Initialize() creates data structures but no monitoring
+        // thread or hook intercepts live Papyrus execution.
+        //
+        // Until the vtable offset is confirmed safe, this hook intentionally
+        // returns failure so the status counters and UI reflect reality.
+
+        result.errorMessage = "Papyrus VM hook not installed (vtable offset not yet validated)";
+        spdlog::warn("ScriptExecutionHook: {}", result.errorMessage);
+        return result;
     }
 
     HookResult FunctionHookManager::InstallCellLoadingHooks() {
