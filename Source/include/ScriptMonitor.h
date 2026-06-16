@@ -15,11 +15,27 @@
 #include <chrono>
 #include <mutex>
 
-/// Script Monitor for proactive validation
-/// Monitors Papyrus script execution and handles errors to prevent crashes
+// ScriptMonitor tracks script blacklists and timeout events.
+//
+// What it does RIGHT NOW:
+//   - Maintains a fast blacklist (bloom filter + hash set) of scripts
+//     that have caused errors
+//   - Tracks per-script timeout windows
+//   - Parses exception messages to decide which scripts to blacklist
+//
+// What requires a future VM hook (not yet installed):
+//   - Intercepting execution before each script runs
+//   - Counting how many times each script has executed
+//   - Blocking a script from running at all
+//
+// A "VM hook" means modifying Skyrim's Papyrus virtual machine vtable
+// so that CrashGuard's code is called before each script executes.
+// This requires knowing the exact function offset for each game version,
+// which must be validated before it is safe to install.
+
 namespace ScriptValidation {
 
-    /// Script exception information
+    // Describes a script error that was caught during execution
     struct ScriptException {
         std::string scriptName;
         uint32_t lineNumber;
@@ -28,7 +44,7 @@ namespace ScriptValidation {
         std::chrono::steady_clock::time_point timestamp;
     };
 
-    /// Script timeout tracking
+    // Tracks how long a single script has been running so we can detect hangs
     struct ScriptTimeout {
         std::chrono::steady_clock::time_point startTime;
         uint32_t maxExecutionMs = 5000;
@@ -36,7 +52,7 @@ namespace ScriptValidation {
         uint32_t taskletId;
     };
 
-    /// Script blacklist entry
+    // Records why a script was added to the blacklist and how many times it has failed
     struct ScriptBlacklistEntry {
         std::string scriptName;
         std::string reason;
@@ -44,84 +60,70 @@ namespace ScriptValidation {
         uint32_t failureCount;
     };
 
-    /// Main script monitor class
+    // Monitors script execution health.
+    // All methods are static because there is only one global script monitoring state.
     class ScriptMonitor {
     public:
-        /// Initialize the script monitor
+        // Set up the blacklist structures. Call once at plugin startup.
         static bool Initialize();
 
-        /// Wrap script execution with error handling
-        static bool ExecuteScriptSafe(RE::BSScript::Internal::VirtualMachine* vm,
-                                     RE::BSScript::Internal::CodeTasklet* tasklet);
-
-        /// Handle script exception
+        // Called when a script causes an error. Parses the error message to
+        // decide if this script should be blacklisted to prevent future problems.
         static void HandleScriptException(const ScriptException& exception);
 
-        /// Check if script is blacklisted
+        // Returns true if the given script has been added to the blacklist.
+        // Uses a bloom filter for speed (avoids mutex lock on most checks).
         static bool IsScriptBlacklisted(const std::string& scriptName);
 
-        /// Terminate runaway script
-        static void TerminateScript(RE::BSScript::Internal::CodeTasklet* tasklet,
-                                   const std::string& reason);
-
-        /// Start timeout tracking for script
+        // Begin tracking how long a script has been running.
+        // Call this when a script starts. Pair with StopScriptTimeout.
         static void StartScriptTimeout(uint32_t taskletId, const std::string& scriptName);
 
-        /// Stop timeout tracking for script
+        // Stop tracking a script that has finished running.
         static void StopScriptTimeout(uint32_t taskletId);
 
-        /// Check for and handle script timeouts
+        // Scan for scripts that have been running longer than the timeout limit.
+        // Call this periodically from the main loop.
         static void CheckScriptTimeouts();
 
-        /// Blacklist problematic script
+        // Add a script to the blacklist with a reason.
         static void BlacklistScript(const std::string& scriptName, const std::string& reason);
 
-        /// Get statistics
+        // Statistics
         static size_t GetBlacklistSize();
+
+        // Returns 0 until a Papyrus VM hook is installed.
+        // The VM hook is required to count actual script executions.
         static size_t GetExecutionCount();
         static size_t GetFailureCount();
+
         static size_t GetTimeoutCount();
 
-        /// Clear blacklist (for testing)
+        // Remove all scripts from the blacklist (useful for testing)
         static void ClearBlacklist();
 
-        /// Set script timeout duration
+        // Change how long a script can run before it is flagged as timed out
         static void SetScriptTimeout(uint32_t timeoutMs);
 
     private:
-        /// Validate script tasklet before execution
-        static bool ValidateTasklet(RE::BSScript::Internal::CodeTasklet* tasklet);
-
-        /// Extract script name from tasklet
-        static std::string ExtractScriptName(RE::BSScript::Internal::CodeTasklet* tasklet);
-
-        /// Extract mod name from script
+        // Parse a script name like "ModName:ScriptName" to extract just the mod part
         static std::string ExtractModName(const std::string& scriptName);
 
-        /// Check for null reference access in script
-        static bool CheckForNullReferences(RE::BSScript::Internal::CodeTasklet* tasklet);
-
-        /// Generate safe default return value for script
-        static bool GenerateSafeDefault(RE::BSScript::Internal::VirtualMachine* vm,
-                                       RE::BSScript::Internal::CodeTasklet* tasklet);
-
-        /// Log script execution details
-        static void LogScriptExecution(const std::string& scriptName, bool success, 
+        // Write a log entry for a script execution result (only when detailed logging is on)
+        static void LogScriptExecution(const std::string& scriptName, bool success,
                                       const std::string& details = "");
 
-        /// Check if script execution should be allowed
+        // Check if a script is allowed to run (not blacklisted)
         static bool ShouldAllowExecution(const std::string& scriptName);
 
-        /// Get unique tasklet ID
+        // Turn a CodeTasklet pointer into a stable numeric ID for tracking purposes
         static uint32_t GetTaskletId(RE::BSScript::Internal::CodeTasklet* tasklet);
 
-        // State tracking
+        // Internal state
         static bool s_initialized;
         static std::unordered_set<std::string> s_blacklistedScripts;
         static std::vector<ScriptBlacklistEntry> s_blacklistEntries;
         static std::unordered_map<uint32_t, ScriptTimeout> s_runningScripts;
-        static size_t s_executionCount;
-        static size_t s_failureCount;
         static size_t s_timeoutCount;
         static uint32_t s_scriptTimeoutMs;
         static std::shared_mutex s_blacklistMutex;

@@ -12,7 +12,8 @@
 // Six-layer defense: L1 (Proactive) to L6 (Learning)
 // Uses CommonLibSSE for game introspection and SKSE for function hooking
 //
-// Log location: Documents/My Games/Skyrim Special Edition/SKSE/SkyrimCrashGuard.log
+// Log location: Documents/My Games/Skyrim Special Edition/SKSE/SkyrimCrashGuard.log  (SE/AE)
+//              Documents/My Games/Skyrim VR/SKSE/SkyrimCrashGuard.log              (VR)
 // ═══════════════════════════════════════════════════════════════════════
 
 #include <SKSE/SKSE.h>
@@ -288,13 +289,27 @@ namespace {
         TrainwreckBridge::UnifiedCrashReporter::Initialize();
 
         // ── Initialize mesh validator ──
-        if (MeshValidation::MeshValidator::Initialize()) {
-            status.meshValidatorReady = true;
+        // Controlled by enableMeshValidation in SkyrimCrashGuard.toml.
+        // Validates NIF geometry data before the renderer processes it.
+        if (Config::Get().enableMeshValidation) {
+            if (MeshValidation::MeshValidator::Initialize()) {
+                status.meshValidatorReady = true;
+                if (log) log->info("[main] Mesh validation enabled");
+            }
+        } else {
+            if (log) log->info("[main] Mesh validation disabled by config");
         }
 
         // ── Initialize script monitor ──
-        if (ScriptValidation::ScriptMonitor::Initialize()) {
-            status.scriptMonitorReady = true;
+        // Controlled by enableScriptMonitoring in SkyrimCrashGuard.toml.
+        // Sets up the script blacklist and timeout tracking infrastructure.
+        if (Config::Get().enableScriptMonitoring) {
+            if (ScriptValidation::ScriptMonitor::Initialize()) {
+                status.scriptMonitorReady = true;
+                if (log) log->info("[main] Script monitoring enabled");
+            }
+        } else {
+            if (log) log->info("[main] Script monitoring disabled by config");
         }
 
         // ── Initialize CoSave manager (S.L.A.C.K. compatibility) ──
@@ -332,6 +347,18 @@ namespace {
         CrashGuard::PapyrusNatives::Register();
         if (log) log->info("Papyrus native functions registered for MCM");
 
+        // ── Register Papyrus validation wrappers ──
+        // RegisterValidationWrappers is invoked by SKSE when the Papyrus VM is ready.
+        // It checks for SmartHarvest at that point and only overrides the registration
+        // if SmartHarvest is not present — safe to always queue regardless of config.
+        if (Config::Get().papyrusValidationEnabled) {
+            auto* papyrus = SKSE::GetPapyrusInterface();
+            if (papyrus) {
+                papyrus->Register(PapyrusValidation::RegisterValidationWrappers);
+                if (log) log->info("Papyrus validation wrappers queued for VM registration");
+            }
+        }
+
         // Initialize function hook manager
         if (Config::Get().patchesEnabled) {
             if (!AddressLib::IsValid()) {
@@ -367,7 +394,10 @@ namespace {
                 Patches::RegisterAll();
                 auto patchCount = PatchEngine::ApplyAll();
                 if (log) {
-                    log->info("Applied {}/{} proactive engine patches",
+                    // Patches register known crash sites for VEH's L1 fast path — no inline
+                    // memory patching is performed. patchCount is the number of entries that
+                    // reported success, which for site-registration patches is all-or-nothing.
+                    log->info("PatchEngine: {}/{} crash sites registered for VEH recovery",
                               patchCount, PatchEngine::GetPatches().size());
                 }
             }
@@ -405,14 +435,14 @@ namespace {
             status.vehActive = false;
         }
 
-        // ── Initialize deadlock detector data structures ──
-        // NOTE: DeadlockDetector::Initialize() allocates tracking containers and
-        // sets the enabled flag.  It does NOT start a watchdog thread; no thread
-        // calls CheckForDeadlock() on a timer.  AttemptBreakDeadlock() always
-        // returns false in the current implementation.
+        // ── Initialize deadlock detector ──
+        // Starts a watchdog thread (period = deadlockTimeout/2) that wakes
+        // periodically, snapshots the lock table, and calls BreakDeadlock if any
+        // thread has been waiting longer than its configured maxWaitTime.
+        // Uses try_to_lock so the watchdog itself can never participate in a deadlock.
         if (!Config::Get().safeMode && Config::Get().vehEnabled) {
             ThreadSafety::DeadlockDetector::Initialize();
-            if (log) log->info("Deadlock detector initialized (data structures only — no watchdog thread)");
+            if (log) log->info("Deadlock detector initialized (watchdog thread active)");
         }
 
         // Note: ImGui Present hook will be installed at kDataLoaded event
@@ -455,12 +485,15 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     
     // Address Library Management (v2.3.6+)
     // CommonLibSSE-NG provides version independence via vcpkg's maintained address
-    // library database.  No fake stubs, no manual offset generation.
-    // AddressLib::IsValid() (called below) confirms the library loaded correctly.
+    // library database. No manual offset tables needed — the library resolves
+    // addresses at runtime. AddressLib::IsValid() confirms it loaded correctly.
 
     // Allocate trampoline space for hooks (1KB should be plenty)
     SKSE::AllocTrampoline(1 << 10);
     
+    // Store SKSE version before Init() (pointer only valid during this call)
+    Plugin::s_skseVersionPacked = skse->SKSEVersion();
+
     // Initialize SKSE normally
     // Version independence is handled by SKSEPlugin_Version flags in SKSEExports.cpp
     SKSE::Init(skse);

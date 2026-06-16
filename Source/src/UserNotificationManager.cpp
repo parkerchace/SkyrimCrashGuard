@@ -285,9 +285,9 @@ namespace UserNotifications {
         const std::vector<std::string>& buttons,
         uint32_t timeoutSeconds) {
         
-        // For now, use a simple MessageBox implementation
-        // In a full implementation, this would use a custom dialog with timeout support
-        
+        // Win32 MessageBox with async timeout. We run it in a separate thread so
+        // the timeout can close the dialog if the user doesn't respond in time.
+        // MB_SYSTEMMODAL keeps the dialog on top during a crash event.
         UINT type = MB_ICONWARNING | MB_SYSTEMMODAL | MB_SETFOREGROUND;
         
         // Map button count to MessageBox types
@@ -1042,29 +1042,46 @@ namespace UserNotifications {
     }
 
     void UserNotificationManager::HandleLoadLastSave(const Diagnostics::CrashReport& report) {
-        spdlog::info("UserNotificationManager: User chose to load last save");
-        
-        // Record user choice
+        spdlog::info("[Notification] User chose to load last save");
+
         s_userChoiceHistory.push_back("LoadLastSave");
-        
+
         try {
-            // Get the save/load manager
-            auto saveLoadManager = RE::BGSSaveLoadManager::GetSingleton();
+            // Verify BGSSaveLoadManager is accessible before queuing (fast check on
+            // calling thread; the actual load must happen on the main game thread).
+            auto* saveLoadManager = RE::BGSSaveLoadManager::GetSingleton();
             if (!saveLoadManager) {
-                spdlog::error("UserNotificationManager: Failed to get save/load manager");
+                spdlog::error("[Notification] BGSSaveLoadManager singleton not available");
                 return;
             }
-            
-            // In a full implementation, this would:
-            // 1. Get the most recent save file
-            // 2. Call LoadGame with that save
-            // 3. Handle the loading process
-            
-            spdlog::info("UserNotificationManager: Load last save requested");
-            spdlog::warn("UserNotificationManager: Load last save not fully implemented");
-            
+
+            // BGSSaveLoadManager is not thread-safe — queue via SKSE task interface so
+            // LoadMostRecentSaveGame() executes on the main thread during the next frame.
+            auto* taskInterface = SKSE::GetTaskInterface();
+            if (!taskInterface) {
+                spdlog::error("[Notification] SKSE TaskInterface not available — cannot queue load");
+                return;
+            }
+
+            taskInterface->AddTask([]() {
+                auto* slm = RE::BGSSaveLoadManager::GetSingleton();
+                if (!slm) {
+                    spdlog::error("[Notification] BGSSaveLoadManager unavailable on main thread");
+                    return;
+                }
+                spdlog::info("[Notification] Calling BGSSaveLoadManager::LoadMostRecentSaveGame()");
+                const bool ok = slm->LoadMostRecentSaveGame();
+                if (ok) {
+                    spdlog::info("[Notification] LoadMostRecentSaveGame() returned true — load initiated");
+                } else {
+                    spdlog::warn("[Notification] LoadMostRecentSaveGame() returned false — no save found or load failed");
+                }
+            });
+
+            spdlog::info("[Notification] Load-last-save task queued on main thread");
+
         } catch (const std::exception& e) {
-            spdlog::error("UserNotificationManager: Exception during load: {}", e.what());
+            spdlog::error("[Notification] Exception while queuing load: {}", e.what());
         }
     }
 

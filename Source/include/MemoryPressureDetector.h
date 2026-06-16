@@ -1,4 +1,4 @@
-// Copyright (C) 2024-2025 Parker Chace
+﻿// Copyright (C) 2026 Parker Chace
 // SPDX-License-Identifier: MIT
 
 #pragma once
@@ -37,23 +37,25 @@ namespace CrashGuard {
 
         /// Get detailed stats
         struct Stats {
-            uint64_t totalRAM;
-            uint64_t availableRAM;
-            uint64_t usedRAM;
-            float usagePercent;
-            
-            uint64_t processMemory;
-            uint64_t peakProcessMemory;
-            
-            uint32_t actorCount;
-            uint32_t referenceCount;
-            
-            bool stackPressure;
-            bool heapFragmentation;
-            bool allocationSpike;
-            
-            MemoryPressure pressureLevel;
-            std::string recommendation;
+            uint64_t totalRAM       = 0;  // Total physical RAM in bytes
+            uint64_t availableRAM   = 0;  // Free physical RAM in bytes
+            uint64_t usedRAM        = 0;  // totalRAM - availableRAM
+            float    usagePercent   = 0;  // 0-100, system-wide RAM usage
+
+            uint64_t processMemory     = 0;  // Skyrim's current working set (bytes)
+            uint64_t peakProcessMemory = 0;  // Highest working set since launch (bytes)
+
+            // Number of active NPCs and creatures the game is currently simulating.
+            // Read from RE::ProcessLists each update. Useful for understanding
+            // why memory is high (populated areas load many NPC meshes and scripts).
+            uint32_t actorCount = 0;
+
+            // True when memory usage is growing faster than the spike threshold
+            // (usually means a large area load or many spawned actors at once)
+            bool allocationSpike = false;
+
+            MemoryPressure pressureLevel = MemoryPressure::Normal;
+            std::string    recommendation;
         };
         Stats GetStats() const;
 
@@ -104,6 +106,10 @@ namespace CrashGuard {
         std::atomic<uint64_t> m_processMemory{0};
         std::atomic<uint64_t> m_peakProcessMemory{0};
         std::atomic<MemoryPressure> m_pressureLevel{MemoryPressure::Normal};
+
+        // Cached actor count — updated in Update() so GetStats() never reads
+        // game data directly. Reads from GetStats() only touch this atomic.
+        std::atomic<uint32_t> m_actorCount{0};
 
         // Pattern detection
         uint64_t m_lastProcessMemory = 0;

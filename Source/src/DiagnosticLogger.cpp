@@ -7,6 +7,7 @@
 #include "PCH.h"
 #include "DiagnosticLogger.h"
 #include "Config.h"
+#include "Plugin.h"
 
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
@@ -83,9 +84,6 @@ namespace Diagnostics {
         s_logFile << "Log directory: " << s_logDirectory << "\n";
         s_logFile << std::string(80, '=') << "\n\n";
         s_logFile.flush();
-
-        // Initialize performance monitoring
-        RecordPerformanceSnapshot();
 
         s_initialized = true;
         
@@ -1146,12 +1144,24 @@ namespace Diagnostics {
     }
 
     void DiagnosticLogger::CollectSystemInfo(CrashReport& report) {
-        // System information would be collected here
-        // For now, we'll add placeholder metadata
+        // Populate the crash report's metadata map with system information.
+        // "os" is always Windows — this plugin only runs on Windows (SKSE requirement).
         report.metadata["os"] = "Windows";
-        report.metadata["skyrimVersion"] = "1.6.640.0";  // Would be detected at runtime
-        report.metadata["skseVersion"] = "2.2.3";        // Would be detected at runtime
-        report.metadata["crashGuardVersion"] = "1.0.0";
+
+        // Skyrim version from CommonLibSSE at runtime
+        {
+            auto& mod = REL::Module::get();
+            auto v = mod.version();
+            report.metadata["skyrimVersion"] = fmt::format("{}.{}.{}.{}",
+                v.major(), v.minor(), v.patch(), v.build());
+        }
+
+        // SKSE version stored at plugin load time from LoadInterface::SKSEVersion()
+        report.metadata["skseVersion"] = Plugin::GetSKSEVersionString();
+
+        // CrashGuard version from compile-time macros
+        report.metadata["crashGuardVersion"] = fmt::format("{}.{}.{}",
+            PLUGIN_VERSION_MAJOR, PLUGIN_VERSION_MINOR, PLUGIN_VERSION_PATCH);
     }
 
     void DiagnosticLogger::CollectModInfo(CrashReport& report) {
@@ -2322,18 +2332,6 @@ namespace Diagnostics {
     // ========================================================================
     // Performance and State Tracking
     // ========================================================================
-
-    void DiagnosticLogger::RecordPerformanceSnapshot() {
-        // This would collect actual performance metrics from the game
-        // For now, we'll initialize with placeholder values
-        s_currentPerformance.fps = 60.0f;
-        s_currentPerformance.memoryUsageMB = 0;
-        s_currentPerformance.cpuUsagePercent = 0.0f;
-        s_currentPerformance.loadedMods = 0;
-        s_currentPerformance.activeNPCs = 0;
-        s_currentPerformance.currentCell = "Unknown";
-        s_currentPerformance.sessionDuration = std::chrono::milliseconds(0);
-    }
 
     PerformanceSnapshot DiagnosticLogger::GetCurrentPerformance() {
         return s_currentPerformance;

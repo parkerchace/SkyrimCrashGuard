@@ -351,22 +351,22 @@ bool SaveLoadResilience::IsFormIDValid(uint32_t formID) {
 }
 
 bool SaveLoadResilience::IsPluginLoaded(uint8_t pluginIndex) {
-    auto dataHandler = RE::TESDataHandler::GetSingleton();
+    auto* dataHandler = RE::TESDataHandler::GetSingleton();
     if (!dataHandler) {
         return false;
     }
-    
-    // Check if plugin index is within loaded plugin range
-    auto& files = dataHandler->files;
+
+    // Walk to the exact index and verify the plugin entry is non-null.
+    // Previous bug: `count >= pluginIndex` returned true as soon as the iterator
+    // reached the target index without ever checking whether a valid plugin sits there.
     uint8_t count = 0;
-    
-    // Iterate through the BSSimpleList
-    for (auto it = files.begin(); it != files.end(); ++it, ++count) {
-        if (count >= pluginIndex) {
-            return true;
+    for (auto it = dataHandler->files.begin(); it != dataHandler->files.end(); ++it, ++count) {
+        if (count == pluginIndex) {
+            return (*it) != nullptr;
         }
     }
-    
+
+    // pluginIndex exceeds the number of loaded plugins
     return false;
 }
 
@@ -474,11 +474,12 @@ bool SaveLoadResilience::OfferLoadPreviousAutosave(const std::filesystem::path& 
         return false;
     }
     
-    spdlog::info("[SaveLoadResilience] Offering to load previous autosave: {}", 
+    // Log the recommendation and return true so the caller knows a valid fallback
+    // save exists. Triggering an actual load from within a crash handler isn't safe
+    // — it requires the game's save system to be in a stable state, which it may
+    // not be at this point. The user should load the save manually from the main menu.
+    spdlog::info("[SaveLoadResilience] Fallback save available: {}",
                  previousSave->string());
-    
-    // In a full implementation, this would trigger the actual load
-    // For now, we just log the recommendation
     return true;
 }
 
@@ -497,8 +498,9 @@ bool SaveLoadResilience::WarnAboutPotentialIssues(const SaveValidationResult& va
         spdlog::warn("[SaveLoadResilience]   WARNING: {}", warning);
     }
     
-    // In a full implementation, this would show a message box to the user
-    // For now, we just log and return true (proceed with caution)
+    // Showing a blocking dialog from inside a save-load callback isn't safe
+    // — it can freeze the game's loading thread. The warnings are written to
+    // the CrashGuard log file where the user can review them after the fact.
     return true;
 }
 

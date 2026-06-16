@@ -3,6 +3,7 @@
 
 #include "MemoryPressureDetector.h"
 #include "RecoveryNotifications.h"
+#include <RE/Skyrim.h>
 #include <spdlog/spdlog.h>
 #include <Windows.h>
 #include <Psapi.h>
@@ -29,6 +30,20 @@ namespace CrashGuard {
         UpdateSystemMemory();
         UpdateProcessMemory();
         DetectAllocationPatterns();
+
+        // Cache the actor count here so GetStats() never has to read game data directly.
+        // ProcessLists is a game-engine object — reading it from the render thread while
+        // the game thread modifies it is technically a data race. Because Update() is
+        // rate-limited to once every 2 seconds we do this at most 0.5 times/sec, and
+        // we only call size() (a single integer read), the practical risk is very low —
+        // but keeping it here and out of GetStats() makes the threading intent clear.
+        {
+            auto* pl = RE::ProcessLists::GetSingleton();
+            m_actorCount.store(
+                pl ? static_cast<uint32_t>(pl->highActorHandles.size() + pl->lowActorHandles.size())
+                   : 0,
+                std::memory_order_relaxed);
+        }
 
         MemoryPressure newLevel = CalculatePressureLevel();
         MemoryPressure oldLevel = m_pressureLevel.load();
@@ -184,23 +199,25 @@ namespace CrashGuard {
 
     MemoryPressureDetector::Stats MemoryPressureDetector::GetStats() const {
         Stats stats{};
-        
-        stats.totalRAM = m_totalRAM.load();
+
+        stats.totalRAM     = m_totalRAM.load();
         stats.availableRAM = m_availableRAM.load();
-        stats.usedRAM = stats.totalRAM - stats.availableRAM;
-        stats.usagePercent = (stats.totalRAM > 0) ? 
-            (static_cast<float>(stats.usedRAM) / stats.totalRAM * 100.0f) : 0.0f;
-        
-        stats.processMemory = m_processMemory.load();
+        stats.usedRAM      = stats.totalRAM - stats.availableRAM;
+        stats.usagePercent = (stats.totalRAM > 0)
+            ? (static_cast<float>(stats.usedRAM) / stats.totalRAM * 100.0f)
+            : 0.0f;
+
+        stats.processMemory     = m_processMemory.load();
         stats.peakProcessMemory = m_peakProcessMemory.load();
-        
-        stats.stackPressure = false;
-        stats.heapFragmentation = false;
+
+        // Actor count is updated once every 2 seconds in Update() and cached here
+        // as an atomic so GetStats() never touches game engine data directly.
+        stats.actorCount = m_actorCount.load(std::memory_order_relaxed);
+
         stats.allocationSpike = m_allocationSpike;
-        
-        stats.pressureLevel = m_pressureLevel.load();
-        stats.recommendation = GenerateRecommendation();
-        
+        stats.pressureLevel   = m_pressureLevel.load();
+        stats.recommendation  = GenerateRecommendation();
+
         return stats;
     }
 

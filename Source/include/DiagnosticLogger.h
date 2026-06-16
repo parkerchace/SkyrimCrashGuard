@@ -194,8 +194,8 @@ namespace Diagnostics {
         /// Import community patterns
         static bool ImportCommunityPatterns(const std::string& filename);
         
-        /// Performance monitoring
-        static void RecordPerformanceSnapshot();
+        /// Returns the current performance snapshot. Values are zero/empty until
+        /// updated externally (no automatic polling is done by DiagnosticLogger itself).
         static PerformanceSnapshot GetCurrentPerformance();
         
         /// Game state tracking

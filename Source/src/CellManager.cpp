@@ -343,10 +343,10 @@ namespace CellValidation {
             cell->ForEachReference([&](RE::TESObjectREFR& ref) {
                 if (!ValidateReference(&ref)) {
                     invalidCount++;
-                    // Note: We can't actually remove references through ForEachReference
-                    // This is a limitation of the CommonLibSSE API
-                    // In a real implementation, we would need to use a different approach
-                    // or accept that invalid references will be logged but not removed
+                    // ForEachReference does not support reference removal mid-iteration;
+                    // this is a CommonLibSSE API constraint. The invalid reference is
+                    // logged here. If removal is needed it must be deferred to the
+                    // main thread via SKSE TaskInterface after iteration completes.
                     spdlog::warn("Invalid reference detected in cell {}: FormID {:08X}",
                                GetCellName(cell), ref.GetFormID());
                 }
@@ -401,16 +401,28 @@ namespace CellValidation {
                     safePosition.x, safePosition.y, safePosition.z);
 
         try {
-            // In a full implementation, this would perform the actual teleportation
-            // This involves:
-            // 1. Unloading current cell if needed
-            // 2. Loading target cell
-            // 3. Moving player to safe position
-            // 4. Updating game state
-            
-            // For now, we'll log the intended action
-            spdlog::info("Player teleported to safe location successfully");
-            
+            // Find any non-disabled, non-deleted reference in the safe cell to use
+            // as the MoveTo anchor. RE::Actor::MoveTo teleports the actor to the
+            // exact world-space position and cell of the target reference.
+            RE::TESObjectREFR* anchor = nullptr;
+            safeCell->ForEachReference([&](RE::TESObjectREFR& ref) -> RE::BSContainer::ForEachResult {
+                if (!ref.IsDisabled() && !ref.IsDeleted()) {
+                    anchor = std::addressof(ref);
+                    return RE::BSContainer::ForEachResult::kStop;
+                }
+                return RE::BSContainer::ForEachResult::kContinue;
+            });
+
+            if (!anchor) {
+                spdlog::error("TeleportToSafeCell: no usable anchor reference in cell {}",
+                             GetCellName(safeCell));
+                return;
+            }
+
+            player->MoveTo(anchor);
+            spdlog::info("Player {:08X} teleported to safe cell: {} (anchor ref {:08X})",
+                        player->GetFormID(), GetCellName(safeCell), anchor->GetFormID());
+
         } catch (const std::exception& e) {
             spdlog::error("Exception during teleportation: {}", e.what());
         }

@@ -1,12 +1,12 @@
 # Skyrim Crash Guard
 
-**Version 2.3.6** — Engine-Level Crash Recovery & Performance Optimization System for Skyrim SE/AE/VR
+**Version 2.3.6** - Engine-Level Crash Recovery for Skyrim SE/AE/VR
 
-An Experimental SKSE plugin that **attempts** to prevent and recover from crashes through validation utilities, resource monitoring & management, and a 7-layer exception handling system with instruction pattern matching. Made for fun using LLMs in my free-time. 
+An experimental SKSE plugin that intercepts Windows access violations, integer divide-by-zero, and illegal CPU instructions before they can kill the game. When one of these fire, CrashGuard reads the exact CPU instruction that failed and responds with a targeted action: return zero for a bad read, drop a bad write, cancel a null pointer call, or bail out of the crashed function entirely. If it works, the game keeps running and a log entry records what happened and which mod was involved. If it doesn't, the exception passes through to a normal crash.
 
-**Status:** Again, this mod is Experimental - Use at your own risk. Always back up your saves, but no one has reported a broken save yet. It is primarily a debug tool to gather more than just one log at a time amd avoid crashes along the way. If you don't like it, don't use it. 
+**Status:** Experimental. Always back up your saves. No one has reported a save corrupted by CrashGuard since v2.2.x, but the theoretical risk exists. Run alongside CrashLogger or Trainwreck for crashes CrashGuard can't handle - they analyze what CrashGuard couldn't recover.
 
-**IMPORTANT:** This mod does NOT guarantee crash prevention or save protection. Recovery success varies with crash type, load order, and system configuration. Some crashes cannot be recovered. We recommend using alongside CrashLogger/Trainwreck for comprehensive crash analysis.
+**IMPORTANT:** This mod does not guarantee crash prevention or save protection. Recovery success varies with crash type, load order, and system configuration. Some crash types cannot be recovered under any circumstances.
 
 ## Quick Links
 - [Installation](#installation--quick-start)
@@ -31,21 +31,21 @@ An Experimental SKSE plugin that **attempts** to prevent and recover from crashe
 | Crash Logging & Analysis | ✅ Working | SKSE/Plugins folder, cooperates with CrashLogger |
 | Performance Metrics | ✅ Working | FPS, frame time, memory pressure display |
 | Pattern Learning System | ✅ Working | Caches crash sites for faster future recovery |
-| Address Library (vcpkg) | ✅ Working | CommonLibSSE-NG via vcpkg — no fake stubs |
-| Input Conflict Prevention | ✅ Working | Blocks camera zoom while scrolling menus |
-| Proactive Mesh/Anim Validation | ✅ Working | Passive utility — not hooked into all loading |
-| Papyrus Native Validation | ✅ Working | Covers SmartHarvest::NotifyActivated |
+| Address Library (vcpkg) | ✅ Working | CommonLibSSE-NG via vcpkg - no fake stubs |
+| Input Conflict Prevention | ⚠️ Partial | F11 menu blocks input fully; camera-zoom prevention in vanilla menus disabled (mod conflict avoidance) |
+| Mesh/Script Validation | ⚠️ Partial | Validation utilities implemented; vtable hooks exist but not auto-integrated into all mesh load paths |
+| Papyrus Validation Framework | ⚠️ Partial | Type-inspection and FunctionRegistry real; SmartHarvest override disabled by default (see config) |
 
 ### ❌ Removed Features (v2.3.5–2.3.6)
 | Feature | Removed In | Reason |
 |---------|-----------|--------|
-| Actor LOD Manager | v2.3.5 | Incomplete implementation — removed entirely |
-| NPC Management (Hide/Restore) | v2.3.5 | Incomplete — ActorLOD system it depended on removed |
+| Actor LOD Manager | v2.3.5 | Incomplete implementation - removed entirely |
+| NPC Management (Hide/Restore) | v2.3.5 | Incomplete - ActorLOD system it depended on removed |
 | Resource Limiter (actor culling) | v2.3.6 | Was disabled at startup; settings advertised culling that never occurred |
 
 These features **no longer exist** in the codebase. The `ActorLODManager.h` header, NPC benchmark actions, `[NPCManagement]` and `[ActorLOD]` config sections have all been deleted in v2.3.6.
 
-**Address Library note:** `AddressLibraryStub.h` was also deleted in v2.3.6. That file was an orphaned stub header — never compiled, never included anywhere. v2.3.6 uses **only** the vcpkg-managed address library via CommonLibSSE-NG. No fake stubs are created. `AddressLib::IsValid()` in main.cpp verifies the real library loaded correctly at startup.
+**Address Library note:** `AddressLibraryStub.h` was also deleted in v2.3.6. That file was an orphaned stub header - never compiled, never included anywhere. v2.3.6 uses **only** the vcpkg-managed address library via CommonLibSSE-NG. No fake stubs are created. `AddressLib::IsValid()` in main.cpp verifies the real library loaded correctly at startup.
 
 ---
 
@@ -97,15 +97,21 @@ These features **no longer exist** in the codebase. The `ActorLODManager.h` head
 
 ---
 
-## How It Works — 6-Layer VEH Recovery Chain + Pattern Matching
+## How It Works - 6-Layer VEH Recovery Chain + Pattern Matching
 
-**EXPERIMENTAL:** Crash recovery is best-effort and may not work for all crash types. Some crashes cannot be recovered. Always back up your saves.
+**EXPERIMENTAL:** Recovery success varies with crash type, load order, and system configuration. Always back up your saves.
 
-When a crash occurs, Skyrim Crash Guard **attempts** to intercept it via Windows Vectored Exception Handling and recover through six progressively more aggressive strategies, plus instruction pattern matching:
+When an access violation occurs, Windows saves a complete snapshot of the processor's state at that exact moment - every register, the instruction pointer, the faulting address - and calls CrashGuard's VEH handler first, before any SEH blocks, before CrashLogger, before the OS crash dialog.
+
+CrashGuard reads the raw bytes at the crash site and decodes them using Zydis, an x86/x64 instruction decoder. Zydis tells CrashGuard exactly what the instruction was doing: which register it was reading into, whether it was a read or a write, how many bytes long the instruction is. For a null pointer read (MOV RCX, [RAX] where RAX is 0x0), CrashGuard writes 0 into RCX in the snapshot and advances the instruction pointer by the instruction's exact byte length. When it tells Windows to resume, Windows writes the modified snapshot back into the real CPU registers and the game continues at the next instruction with RCX == 0. The crashed instruction never re-executes.
+
+For patterns CrashGuard doesn't recognize, it returns EXCEPTION_CONTINUE_SEARCH and the exception propagates normally.
+
+CrashGuard then works through six recovery strategies in order from most targeted to most general:
 
 | Layer | Name | Description |
 |-------|------|-------------|
-| **L1** | Known Site | Pre-analyzed crash addresses (game exe + mod DLLs) — instant recovery attempt |
+| **L1** | Known Site | Pre-analyzed crash addresses (game exe + mod DLLs) - instant recovery attempt |
 | **L1b** | Instruction Pattern | Version-independent pattern matching via Zydis decoder |
 | **L2** | Learned Site | Previously decoded at runtime, cached for instant replay |
 | **L3** | Register Fixup | Attempts to redirect faulting base register to safety buffer |
@@ -146,7 +152,7 @@ CrashGuard is designed to **cooperate** with CrashLogger, not compete with it. *
 At startup, CrashGuard scans CrashLogger's crash logs from previous sessions and attempts to extract crash patterns. This helps build awareness of historical crash sites.
 
 ### What This Means for Users
-- If CrashLogger writes a crash log, **that crash was real** — CrashGuard tried and failed to recover it
+- If CrashLogger writes a crash log, **that crash was real** - CrashGuard tried and failed to recover it
 - CrashLogger's analysis of unrecovered crashes is **accurate** (CrashGuard doesn't corrupt the CONTEXT)
 - Check CrashGuard's recovery reports to see crashes that **may have** crashed your game but were recovered
 
@@ -215,7 +221,7 @@ These systems both monitor AND actively intervene:
   - **Manages:** Breaks detected deadlocks by releasing oldest locks
   - **Note:** Actively intervenes to prevent thread deadlocks
 
-**Key Distinction:** Memory tracking does NOT free memory—it only monitors and warns. The game engine handles actual memory management.
+**Key Distinction:** Memory tracking does NOT free memory-it only monitors and warns. The game engine handles actual memory management.
 
 ---
 
@@ -233,14 +239,8 @@ CrashGuard works with default settings out of the box. Configuration is optional
 **[General]**
 ```toml
 enabled = true              # Enable/disable the entire plugin
-logLevel = 1                # 0=off, 1=errors/warnings, 2=info, 3=debug, 4=trace
+logLevel = 1                # 0=off, 1=errors/warnings only, 2=info, 3=debug, 4=trace
 ```
-
-**[Hotkeys]**
-```toml
-menuToggleKey = "F11"       # Key to open configuration menu (F1-F12, Insert, Delete, etc.)
-```
-For controller users: Use Steam Input or similar software to map a controller button to F11.
 
 **[VEH]** (Crash Recovery)
 ```toml
@@ -320,9 +320,8 @@ maxLogFiles = 3             # Keep last 3 log files
 - **Check:**
   1. Open `SkyrimCrashGuard.toml`
   2. Verify `[ImGui] disableMenu = false`
-  3. Try a different key: Change `[Hotkeys] menuToggleKey = "F12"` (or another key)
-  4. Check log for ImGui initialization errors
-- **Solution:** Enable menu in TOML, try different hotkey, check for ImGui conflicts
+  3. Check log for ImGui initialization errors
+- **Solution:** Enable menu in TOML, check for ImGui conflicts. Note: F11 is the fixed hotkey and cannot be changed via config.
 
 **Camera Zooms When Scrolling Menus**
 - **Symptom:** Mouse wheel controls camera instead of scrolling in dialogue/inventory menus
@@ -336,7 +335,7 @@ maxLogFiles = 3             # Keep last 3 log files
     ```toml
     customScrollableMenus = ["CustomDialogueMenu", "ModdedInventoryMenu"]
     ```
-  - Or check F11 menu Settings tab to see detected menus
+  - The log (step 3 above) will show the exact menu name to add
 
 **Crashes Still Happening**
 - **Symptom:** Game crashes despite CrashGuard installed
@@ -359,7 +358,6 @@ maxLogFiles = 3             # Keep last 3 log files
   2. Check memory pressure level (Normal/Elevated/High/Critical)
   3. Review memory usage and system resources
 - **Solution:**
-  - Enable `[EngineOptimizations]` features for LOD management
   - Check for mods that spawn excessive objects or use heavy scripts
 
 **Script Errors / Papyrus Issues**
@@ -432,6 +430,8 @@ CrashGuard **attempts** to recover these crash types (success varies):
 - **Corrupted vtable calls** - NiParticleSystem, BSFadeNode, TESObjectARMO
 - **Invalid memory reads** - Mesh loading, texture access, skeleton initialization
 - **Invalid memory writes** - Game code writes to null/invalid pointers
+- **Integer divide-by-zero** - Mod formula hits a zero denominator; CrashGuard zeroes the result registers and skips the instruction or exits the function
+- **Illegal CPU instruction** - Corrupted function pointer causes the CPU to jump to invalid code; CrashGuard attempts to exit the crashed function and return to the caller
 
 **Common examples:** Fire spell particles, water reflections, RaceMenu morphs, ragdoll physics, LOD transitions, save/load rendering.
 

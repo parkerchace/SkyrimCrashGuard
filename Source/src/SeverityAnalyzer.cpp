@@ -1,4 +1,4 @@
-// Copyright (C) 2024-2025 Parker Chace
+﻿// Copyright (C) 2026 Parker Chace
 // SPDX-License-Identifier: MIT
 //
 // This file is part of Skyrim CrashGuard.
@@ -171,21 +171,39 @@ VEH::SeverityLevel SeverityAnalyzer::ClassifyByCallStack(
 
 VEH::SeverityLevel SeverityAnalyzer::ClassifyByMemoryRegion(void* crashAddress) {
     uintptr_t addr = reinterpret_cast<uintptr_t>(crashAddress);
-    
-    // Null pointer dereference - Warning
+
+    // Near-null: classic null pointer dereference
     if (addr < 0x10000) {
         return VEH::SeverityLevel::Warning;
     }
-    
-    // Stack region (typical stack addresses) - Fatal
-    if (addr >= 0x000000000000 && addr < 0x000100000000) {
-        // Check if it's in typical stack range
-        // This is a simplified check; actual stack detection would be more complex
-        return VEH::SeverityLevel::Fatal;
+
+    // Query the memory region type via VirtualQuery.
+    // This tells us whether the address is committed, reserved, free, etc.
+    MEMORY_BASIC_INFORMATION mbi{};
+    if (VirtualQuery(crashAddress, &mbi, sizeof(mbi)) == sizeof(mbi)) {
+        if (mbi.State == MEM_FREE || mbi.State == MEM_RESERVE) {
+            // Dereferencing an unmapped address — typical null/dangling pointer crash
+            return VEH::SeverityLevel::Warning;
+        }
+
+        // Check if the crash is inside executable code (Type == MEM_IMAGE, PAGE_EXECUTE_*).
+        // A crash *inside* code (e.g. jump to bad address) is harder to recover from.
+        const DWORD execMask = PAGE_EXECUTE | PAGE_EXECUTE_READ |
+                               PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+        if ((mbi.Protect & execMask) != 0) {
+            return VEH::SeverityLevel::Fatal;
+        }
+
+        // Stack range check omitted: GetCurrentThreadStackLimits requires
+        // _WIN32_WINNT >= 0x0602 which may not be defined in this SDK config.
+        // Stack overflows are already caught by ClassifyByPattern via
+        // EXCEPTION_STACK_OVERFLOW, and MEM_RESERVE above catches most
+        // invalid stack accesses.
     }
-    
-    // Default to Unknown
-    return VEH::SeverityLevel::Unknown;
+
+    // Committed, non-executable, non-stack address — heap or mapped file.
+    // Access violations here are Warning-level (dangling pointer, race, etc.)
+    return VEH::SeverityLevel::Warning;
 }
 
 VEH::SeverityLevel SeverityAnalyzer::ClassifyByPattern(

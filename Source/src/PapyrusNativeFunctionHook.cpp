@@ -1,4 +1,4 @@
-// Copyright (C) 2024-2025 Parker Chace
+﻿// Copyright (C) 2026 Parker Chace
 // SPDX-License-Identifier: MIT
 //
 // This file is part of Skyrim CrashGuard.
@@ -101,21 +101,21 @@ namespace PapyrusValidation {
             stats.crashesPrevented++;
         }
 
-        // If critical parameters are invalid, don't call the original function
+        // If critical parameters are invalid, block the call to prevent the crash.
+        // This wrapper is only registered when SmartHarvest is absent, so there is no
+        // original function to forward to — any Papyrus script calling shse_pluginproxy::
+        // NotifyActivated without SmartHarvest installed is already a misconfigured load order.
         if (!itemForm || baseName.empty()) {
-            spdlog::error("[PapyrusValidation] Critical parameters invalid - blocking SmartHarvest::NotifyActivated call");
+            spdlog::error("[PapyrusValidation] Critical parameters invalid — "
+                          "blocking shse_pluginproxy::NotifyActivated call");
             return;
         }
 
-        // Parameters are valid, but we can't call the original SmartHarvest function
-        // because we don't have access to it. This wrapper is meant to REPLACE
-        // the problematic function, not call it.
-        // 
-        // In practice, SmartHarvest would need to be patched to use our validated
-        // version, or we'd need to hook at a lower level (which requires finding
-        // the correct address).
-        
-        spdlog::trace("[PapyrusValidation] NotifyActivated validated successfully");
+        // Parameters are valid. The wrapper is registered only when SmartHarvest is absent;
+        // log so it's clear the call was received and validated but there is no downstream
+        // handler (SmartHarvest's native code is not present).
+        spdlog::debug("[PapyrusValidation] NotifyActivated — parameters valid, "
+                      "no SmartHarvest handler present (expected if SmartHarvest is not installed)");
     }
 
     // ========================================================================
@@ -132,20 +132,14 @@ namespace PapyrusValidation {
             // Load default validation rules
             FunctionRegistry::LoadDefaultRules();
 
-            // Note: Papyrus function registration approach
-            // This system provides validation wrappers for problematic functions.
-            // However, it requires the mod (SmartHarvest) to be modified to call
-            // our validated versions, OR we need to hook at the registration level
-            // to intercept when mods register their functions.
-            //
-            // For now, we're just setting up the infrastructure. The actual
-            // registration would happen in SKSEPlugin_Load via:
+            // Registration is deferred to SKSEPlugin_Load via:
             //   SKSE::GetPapyrusInterface()->Register(RegisterValidationWrappers)
-            
+            // That call is wired in main.cpp and invokes RegisterValidationWrappers()
+            // once the Papyrus VM is available. SmartHarvest detection happens there,
+            // not here, so Initialize() just prepares the rule table.
+
             s_installed = true;
             spdlog::info("[PapyrusValidation] Validation system initialized");
-            spdlog::info("[PapyrusValidation] Ready to register validation wrappers");
-            spdlog::info("[PapyrusValidation] Note: Requires Papyrus function registration in SKSEPlugin_Load");
             
             return true;
 
@@ -196,19 +190,38 @@ namespace PapyrusValidation {
         }
 
         try {
-            // Register SmartHarvest NotifyActivated wrapper
-            // Note: This will only work if SmartHarvest hasn't registered yet,
-            // or if we can override existing registrations
-            
-            vm->RegisterFunction(
-                "NotifyActivated",
-                "shse_pluginproxy",
-                ValidatedNotifyActivated,
-                true  // Allow override
-            );
+            // SmartHarvest compatibility:
+            // RE::IVirtualMachine::RegisterFunction always replaces an existing registration
+            // for the same (function, class) pair. If SmartHarvest is installed it will
+            // have already registered shse_pluginproxy::NotifyActivated with its own
+            // C++ function. Overriding it with our wrapper — which returns without
+            // forwarding to the original — silently breaks SmartHarvest's harvest
+            // notification system for every item collected.
+            //
+            // Instead: only register the wrapper if SmartHarvest's DLL is NOT loaded.
+            // When SmartHarvest IS present, crash protection for this specific function
+            // is handled reactively by the VEH recovery chain (L1–L6), which catches
+            // any access violation before it propagates.
 
-            s_registeredFunctions++;
-            spdlog::info("[PapyrusValidation] Registered validation wrapper for SmartHarvest::NotifyActivated");
+            const bool shInstalled =
+                (GetModuleHandleA("SHSE_PlugIn.dll")       != nullptr) ||
+                (GetModuleHandleA("SmartHarvestSE.dll")     != nullptr) ||
+                (GetModuleHandleA("po3_SmartHarvestSE.dll") != nullptr);
+
+            if (!shInstalled) {
+                vm->RegisterFunction(
+                    "NotifyActivated",
+                    "shse_pluginproxy",
+                    ValidatedNotifyActivated,
+                    false  // isLatent: false — this is a void, synchronous function
+                );
+                s_registeredFunctions++;
+                spdlog::info("[PapyrusValidation] Registered NotifyActivated wrapper "
+                             "(SmartHarvest not present)");
+            } else {
+                spdlog::info("[PapyrusValidation] SmartHarvest detected — "
+                             "NotifyActivated not overridden; VEH handles crash protection");
+            }
 
             // Add more function wrappers here as needed
             // Example:

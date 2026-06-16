@@ -12,7 +12,6 @@
 namespace MeshValidation {
 
     // Static member initialization
-    RE::NiAVObject* MeshValidator::s_placeholderMesh = nullptr;
     bool MeshValidator::s_initialized = false;
 
     bool MeshValidator::Initialize() {
@@ -166,13 +165,7 @@ namespace MeshValidation {
             }
         }
 
-        // Step 4: Remove degenerate triangles
-        if (!RemoveDegenerateTriangles(geometry)) {
-            spdlog::warn("Failed to remove degenerate triangles");
-            // Not critical, continue
-        }
-
-        // Step 5: Clamp bone indices if skinned
+        // Step 4: Clamp bone indices if skinned
         auto& runtimeData = geometry->GetRuntimeData();
         if (runtimeData.m_spSkinInstance) {
             if (!ClampBoneIndices(runtimeData.m_spSkinInstance.get())) {
@@ -191,18 +184,11 @@ namespace MeshValidation {
     }
 
     RE::NiAVObject* MeshValidator::GetPlaceholderMesh() {
-        // Lazy initialization of placeholder mesh
-        if (!s_placeholderMesh) {
-            s_placeholderMesh = CreatePlaceholderCube();
-            if (s_placeholderMesh) {
-                spdlog::info("Created and cached placeholder cube mesh");
-            } else {
-                spdlog::warn("Placeholder mesh not available - will return nullptr");
-                spdlog::info("To enable placeholder meshes, place a placeholder.nif file in:");
-                spdlog::info("  Data/SKSE/Plugins/SkyrimCrashGuard/placeholder.nif");
-            }
-        }
-        return s_placeholderMesh;
+        // No placeholder is loaded at runtime.
+        // The validation system is intentionally permissive: NiNode hierarchies
+        // are accepted as valid, so a replacement mesh is almost never needed.
+        // Severely corrupted geometry is rejected (RepairMesh returns nullptr).
+        return nullptr;
     }
 
     // ========================================================================
@@ -419,9 +405,9 @@ namespace MeshValidation {
             return false;
         }
 
-        // This is a basic validation - specific triangle formats (NiTriShape, NiTriStrips)
-        // would need more detailed validation
-        // For now, just check that we have vertices to form triangles
+        // A valid triangle mesh needs at least 3 vertices.
+        // A mesh with fewer than 3 vertices can't describe even one triangle, which
+        // would cause the renderer to access out-of-bounds vertex memory.
         if (geometryData->vertices < 3) {
             errors.push_back("Mesh has fewer than 3 vertices (cannot form triangles)");
             return false;
@@ -440,47 +426,34 @@ namespace MeshValidation {
             return false;
         }
 
-        // Debug logging disabled to reduce log bloat (400KB+ per session)
-        // Enable with logLevel=3 in config if needed for debugging
-        // spdlog::debug("Recalculating normals for mesh with {} vertices", geometryData->vertices);
-
-        // Allocate normal array if not present
+        // Allocate the normal array if it doesn't exist yet
         if (!geometryData->normal) {
             geometryData->normal = new RE::NiPoint3[geometryData->vertices];
             if (!geometryData->normal) {
-                spdlog::error("Failed to allocate normal array");
+                spdlog::error("[MeshValidator] Failed to allocate normal array for {} vertices",
+                              geometryData->vertices);
                 return false;
             }
         }
 
-        // Initialize all normals to zero with bounds checking
-        for (uint16_t i = 0; i < geometryData->vertices; ++i) {
-            // Bounds check: ensure index is within valid range
-            if (i >= geometryData->vertices) {
-                spdlog::error("Normal index {} out of bounds (size: {})", i, geometryData->vertices);
-                break;
-            }
-            geometryData->normal[i] = RE::NiPoint3(0.0f, 0.0f, 0.0f);
-        }
-
-        // For a proper implementation, we would need to:
-        // 1. Iterate through all triangles
-        // 2. Calculate face normals
-        // 3. Accumulate face normals to vertex normals
-        // 4. Normalize vertex normals
+        // Set all normals to straight up (0,0,1).
         //
-        // Since we don't have direct access to triangle indices here,
-        // we'll use a simple fallback: set all normals to point up
+        // A "normal" is a vector that points away from the surface — it tells the
+        // renderer which direction to shine light from. Setting every normal to
+        // (0,0,1) means every face looks flat and lit from directly above, which
+        // looks wrong but is always valid and will not crash the renderer.
+        //
+        // Proper per-vertex normals require triangle indices (each triangle tells us
+        // three vertex indices; the cross product of two edges gives the face direction).
+        // In our installed version of CommonLibSSE-NG, NiTriShapeData is only
+        // forward-declared — the triangle index array is not accessible via the header.
+        // The safe-upward fallback is therefore the correct choice here.
         for (uint16_t i = 0; i < geometryData->vertices; ++i) {
-            // Bounds check: ensure index is within valid range
-            if (i >= geometryData->vertices) {
-                spdlog::error("Normal index {} out of bounds (size: {})", i, geometryData->vertices);
-                break;
-            }
             geometryData->normal[i] = RE::NiPoint3(0.0f, 0.0f, 1.0f);
         }
 
-        // spdlog::debug("Normal recalculation completed");
+        spdlog::debug("[MeshValidator] Set {} normals to safe upward fallback (triangle "
+                      "indices not accessible via NiGeometryData)", geometryData->vertices);
         return true;
     }
 
@@ -546,13 +519,6 @@ namespace MeshValidation {
         }
 
         // spdlog::debug("Planar UV generation completed");
-        return true;
-    }
-
-    bool MeshValidator::RemoveDegenerateTriangles(RE::NiGeometry* geometry) {
-        // This would require access to triangle index data
-        // For now, we'll just log that we attempted it
-        // spdlog::debug("Degenerate triangle removal not fully implemented (requires triangle index access)");
         return true;
     }
 
@@ -674,25 +640,6 @@ namespace MeshValidation {
         }
 
         return true;
-    }
-
-    // ========================================================================
-    // Placeholder Mesh Generation
-    // ========================================================================
-
-    RE::NiAVObject* MeshValidator::CreatePlaceholderCube() {
-        spdlog::info("Attempting to load base game mesh as placeholder");
-
-        // For safety and compatibility, we return nullptr and rely on permissive validation
-        // Loading meshes at runtime requires complex form lookup and version-specific APIs
-        // The validation system is designed to be permissive enough that placeholder
-        // replacement is rarely needed - most meshes pass validation (NiNode hierarchies accepted)
-        
-        spdlog::info("Placeholder mesh system: Using permissive validation");
-        spdlog::info("NiNode hierarchies accepted as valid scene graphs");
-        spdlog::info("Only severely corrupted geometry triggers replacement");
-        
-        return nullptr;
     }
 
     // ========================================================================

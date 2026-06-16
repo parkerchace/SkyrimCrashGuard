@@ -1,4 +1,4 @@
-// Copyright (C) 2024-2025 Parker Chace
+﻿// Copyright (C) 2026 Parker Chace
 // SPDX-License-Identifier: MIT
 //
 // This file is part of Skyrim CrashGuard.
@@ -57,15 +57,8 @@ void ResetToDefaults(RE::StaticFunctionTag*) {
     config.enableAnimationValidation = true;
     config.enableScriptMonitoring = true;
     config.enableCellValidation = true;
-    config.enableNullChecks = true;
-    config.enableBoundsChecks = true;
-    config.enableFormIDChecks = true;
-    config.enableStateSnapshots = true;
-    config.maxSnapshotsPerSession = 100;
     config.enableLearning = true;
     config.showNotifications = true;
-    config.autoRecoverSafe = true;
-    config.autoRecoverWarning = false;
     config.notificationTimeoutSeconds = 30;
     config.scriptTimeoutMs = 5000;
     config.maxRecoveryAttempts = 3;

@@ -57,24 +57,19 @@ namespace MeshValidation {
         static bool ValidateTriangles(const RE::NiGeometry* geometry, std::vector<std::string>& errors);
 
         // Repair functions
-        /// Recalculate normals from vertices
+        /// Set all normals to a safe upward fallback value (0,0,1).
+        /// Per-vertex normals from triangle data are not available in this
+        /// CommonLibSSE-NG version (NiTriShapeData fields are not exposed).
         static bool RecalculateNormals(RE::NiGeometry* geometry);
 
-        /// Generate planar UV coordinates
+        /// Generate planar UV coordinates using XY-plane projection
         static bool GeneratePlanarUVs(RE::NiGeometry* geometry);
 
-        /// Remove degenerate triangles
-        static bool RemoveDegenerateTriangles(RE::NiGeometry* geometry);
-
-        /// Clamp bone indices to valid range
+        /// Clamp bone weight values to valid range [0,1]
         static bool ClampBoneIndices(RE::NiSkinInstance* skin);
 
-        /// Replace NaN/Inf values with valid numbers
+        /// Replace NaN/Inf values with valid numbers so the renderer won't crash
         static bool ReplaceInvalidValues(RE::NiGeometry* geometry);
-
-        // Placeholder mesh generation
-        /// Create simple cube mesh as fallback
-        static RE::NiAVObject* CreatePlaceholderCube();
 
         // Helper functions
         /// Check if a float value is valid (not NaN or Inf)
@@ -101,8 +96,6 @@ namespace MeshValidation {
         /// Get geometry data (const version)
         static const RE::NiGeometry* GetGeometry(const RE::NiAVObject* object);
 
-        // Cached placeholder mesh
-        static RE::NiAVObject* s_placeholderMesh;
         static bool s_initialized;
     };
 

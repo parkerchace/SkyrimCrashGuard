@@ -1,4 +1,4 @@
-// Copyright (C) 2024-2025 Parker Chace
+﻿// Copyright (C) 2026 Parker Chace
 // SPDX-License-Identifier: MIT
 //
 // This file is part of Skyrim CrashGuard.
@@ -88,10 +88,8 @@ std::optional<std::uintptr_t> AddressResolver::FindPattern(const Pattern& patter
         return std::nullopt;
     }
 
-    // Convert hex string pattern to bytes
-    // For now, we'll use the pattern and mask directly
-    // In a full implementation, you'd parse the hex string
-    
+    // Pattern and mask are pre-parsed byte arrays provided by the caller;
+    // ScanPattern performs the Boyer-Moore-Horspool style signature scan.
     const auto result = ScanPattern(base, size, pattern.signature.data(), pattern.mask.data());
     
     if (result == 0) {

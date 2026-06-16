@@ -107,7 +107,6 @@ set(PLUGIN_SOURCES
     src/CrashTestSuite.cpp
     src/MemoryPressureDetector.cpp
     src/CrosshairObserver.cpp
-    src/MenuInputObserver.cpp
     src/SeverityAnalyzer.cpp
     src/NotificationThresholdManager.cpp
     src/ToastNotificationManager.cpp

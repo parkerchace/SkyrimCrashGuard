@@ -7,6 +7,7 @@
 #include "UnifiedCrashReport.h"
 #include "VEH.h"
 #include "CrashLoggerDetector.h"
+#include "Plugin.h"
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
 #include <fmt/chrono.h>
@@ -305,13 +306,12 @@ SystemInfo ReportManager::GatherSystemInfo() {
     info.skyrimVersion = fmt::format("{}.{}.{}.{}", 
         version.major(), version.minor(), version.patch(), version.build());
     
-    // Get SKSE version from runtime info
-    auto skseVersion = SKSE::PluginDeclaration::GetSingleton()->GetVersion();
-    info.skseVersion = fmt::format("{}.{}.{}", 
-        skseVersion.major(), skseVersion.minor(), skseVersion.patch());
-    
-    // CrashGuard version from Config
-    info.crashGuardVersion = "2.3.2";
+    // SKSE version stored at plugin load time from LoadInterface::SKSEVersion()
+    info.skseVersion = Plugin::GetSKSEVersionString();
+
+    // CrashGuard version from compile-time macros
+    info.crashGuardVersion = fmt::format("{}.{}.{}",
+        PLUGIN_VERSION_MAJOR, PLUGIN_VERSION_MINOR, PLUGIN_VERSION_PATCH);
     
     // Get Windows version using RtlGetVersion
     OSVERSIONINFOEXW osInfo = {};

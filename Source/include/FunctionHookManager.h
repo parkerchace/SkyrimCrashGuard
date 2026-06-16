@@ -86,28 +86,11 @@ namespace FunctionHooks {
         /// Original animation playback function pointer (trampoline)
         static inline REL::Relocation<decltype(Hook_NotifyAnimationGraph)> _NotifyAnimationGraph;
 
-        // ========================================================================
-        // Script Execution Hook Implementation
-        // ========================================================================
-        
-        /// Hooked script execution function
-        /// Wraps script calls with error handling
-        static bool Hook_ExecuteScript(RE::BSScript::Internal::VirtualMachine* vm,
-                                      RE::BSScript::Internal::CodeTasklet* tasklet);
-        
-        /// Original script execution function pointer (trampoline)
-        static inline REL::Relocation<decltype(Hook_ExecuteScript)> _ExecuteScript;
-
-        // ========================================================================
-        // Cell Loading Hook Implementation
-        // ========================================================================
-        
-        /// Hooked cell loading function
-        /// Validates cell references before spawning
-        static void Hook_LoadCell(RE::TESObjectCELL* a_cell);
-        
-        /// Original cell loading function pointer (trampoline)
-        static inline REL::Relocation<decltype(Hook_LoadCell)> _LoadCell;
+        // Note: Hook_ExecuteScript and Hook_LoadCell were removed.
+        // Hook_ExecuteScript: The Papyrus VM vtable hook is not installed (see InstallScriptHooks).
+        //   No code path ever reaches Hook_ExecuteScript, so it was dead code.
+        // Hook_LoadCell: Cell validation uses the event system (CellLoadingEventHandler),
+        //   not a vtable hook, so Hook_LoadCell was never called either.
 
         // ========================================================================
         // Logging and Validation

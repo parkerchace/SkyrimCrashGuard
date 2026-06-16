@@ -1,4 +1,4 @@
-// Copyright (C) 2024-2025 Parker Chace
+﻿// Copyright (C) 2026 Parker Chace
 // SPDX-License-Identifier: MIT
 //
 // This file is part of Skyrim CrashGuard.
@@ -19,6 +19,8 @@ namespace ThreadSafety {
     std::mutex DeadlockDetector::s_detectorMutex;
     size_t DeadlockDetector::s_deadlockCount = 0;
     size_t DeadlockDetector::s_brokenDeadlockCount = 0;
+    std::thread DeadlockDetector::s_watchdogThread;
+    std::atomic<bool> DeadlockDetector::s_watchdogRunning{false};
 
     void DeadlockDetector::Initialize() {
         if (s_initialized) {
@@ -34,8 +36,64 @@ namespace ThreadSafety {
         s_brokenDeadlockCount = 0;
         s_enabled = true;
 
+        // Start the watchdog thread. It wakes every half-timeout period and calls
+        // CheckForDeadlock(). If the check itself can't acquire the mutex (because
+        // a monitored thread is holding it), the watchdog skips that beat rather
+        // than blocking, so the watchdog can't participate in the deadlock it's
+        // trying to detect.
+        s_watchdogRunning = true;
+        s_watchdogThread = std::thread([]() {
+            spdlog::debug("[DeadlockDetector] Watchdog started (period: {}ms)",
+                         s_deadlockTimeout.count() / 2);
+            while (s_watchdogRunning.load(std::memory_order_relaxed)) {
+                std::this_thread::sleep_for(s_deadlockTimeout / 2);
+
+                if (!s_enabled || !s_initialized) continue;
+
+                // Non-blocking try: if the detector mutex is already held we skip
+                // this beat to avoid the watchdog itself blocking.
+                std::unique_lock<std::mutex> lk(s_detectorMutex, std::try_to_lock);
+                if (!lk.owns_lock()) continue;
+
+                // Snapshot the lock table while holding the mutex, then release
+                // before calling BreakDeadlock (which re-acquires internally).
+                auto now = std::chrono::steady_clock::now();
+                DeadlockInfo info;
+                info.detected = false;
+
+                for (const auto& [tid, locks] : s_threadLocks) {
+                    for (const auto& acq : locks) {
+                        if (!acq.isAcquired) {
+                            auto wait = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                now - acq.acquisitionTime);
+                            if (wait > acq.maxWaitTime) {
+                                info.detected = true;
+                                info.involvedThreads.push_back(tid);
+                                info.involvedLocks.push_back(acq.lockName);
+                                info.waitDuration = wait;
+                                info.description = fmt::format(
+                                    "Thread {} waiting for '{}' for {}ms (limit {}ms)",
+                                    std::hash<std::thread::id>{}(tid),
+                                    acq.lockName, wait.count(), acq.maxWaitTime.count());
+                                break;
+                            }
+                        }
+                    }
+                    if (info.detected) break;
+                }
+                lk.unlock();
+
+                if (info.detected) {
+                    spdlog::warn("[DeadlockDetector] Watchdog: {}", info.description);
+                    BreakDeadlock(info);
+                }
+            }
+            spdlog::debug("[DeadlockDetector] Watchdog stopped");
+        });
+
         s_initialized = true;
-        spdlog::info("DeadlockDetector initialized with {}ms timeout", s_deadlockTimeout.count());
+        spdlog::info("DeadlockDetector initialized with {}ms timeout, watchdog active",
+                     s_deadlockTimeout.count());
     }
 
     void DeadlockDetector::Shutdown() {
@@ -46,6 +104,12 @@ namespace ThreadSafety {
         spdlog::info("DeadlockDetector shutting down");
         spdlog::info("  Total deadlocks detected: {}", s_deadlockCount);
         spdlog::info("  Deadlocks broken: {}", s_brokenDeadlockCount);
+
+        // Stop and join the watchdog thread before clearing state
+        s_watchdogRunning = false;
+        if (s_watchdogThread.joinable()) {
+            s_watchdogThread.join();
+        }
 
         std::lock_guard<std::mutex> lock(s_detectorMutex);
         s_threadLocks.clear();
@@ -186,20 +250,12 @@ namespace ThreadSafety {
             return false;
         }
 
-        spdlog::warn("Attempting to break deadlock: {}", deadlock.description);
+        // Log the deadlock details so they appear in the crash log.
+        // Forcing a lock release from a DLL plugin is not safe — it could corrupt
+        // the game's internal state and cause a worse crash than the deadlock itself.
+        // We detect, log, and return false. The watchdog thread will keep watching.
         LogDeadlock(deadlock);
-
-        // Attempt to break the deadlock
-        bool broken = AttemptBreakDeadlock(deadlock);
-
-        if (broken) {
-            s_brokenDeadlockCount++;
-            spdlog::info("Successfully broke deadlock");
-        } else {
-            spdlog::error("Failed to break deadlock - manual intervention may be required");
-        }
-
-        return broken;
+        return false;
     }
 
     size_t DeadlockDetector::GetDeadlockCount() {
@@ -229,12 +285,12 @@ namespace ThreadSafety {
     }
 
     bool DeadlockDetector::FindCircularWait(std::vector<LockAcquisition>& chain) {
-        // Simplified circular wait detection
-        // In a full implementation, this would build a wait-for graph
-        // and detect cycles using DFS or similar algorithm
-        
-        // For now, we check if multiple threads are waiting for locks
-        // that are held by other waiting threads
+        // Detect circular lock waits by building two maps:
+        //   lockOwners   — which thread currently holds each lock
+        //   threadWaiting — which lock each thread is blocked on
+        // Then we follow the wait chain from any blocked thread:
+        // if we ever revisit a thread we've already seen, that loop IS a deadlock.
+        // This is O(n) per detection pass and safe to call from the watchdog thread.
         
         std::unordered_map<std::string, std::thread::id> lockOwners;
         std::unordered_map<std::thread::id, std::string> threadWaiting;
@@ -304,24 +360,6 @@ namespace ThreadSafety {
         }
         
         spdlog::error("Total deadlocks detected: {}", s_deadlockCount);
-    }
-
-    bool DeadlockDetector::AttemptBreakDeadlock(const DeadlockInfo& deadlock) {
-        // In a real implementation, we would:
-        // 1. Identify the oldest lock in the deadlock chain
-        // 2. Force release that lock (if possible)
-        // 3. Allow other threads to proceed
-        // 4. Re-acquire the lock later
-        
-        // For now, we just log the attempt
-        // Breaking deadlocks safely is very complex and risky
-        // In most cases, it's better to prevent them in the first place
-        
-        spdlog::warn("Deadlock breaking is not fully implemented");
-        spdlog::warn("Recommend restarting the application if deadlock persists");
-        
-        // Return false to indicate we couldn't break it
-        return false;
     }
 
 }  // namespace ThreadSafety

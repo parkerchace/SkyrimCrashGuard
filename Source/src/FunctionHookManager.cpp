@@ -228,13 +228,9 @@ namespace FunctionHooks {
             }
 
             if (needsValidation) {
-                // For now, we'll do basic validation
-                // In a full implementation, this would:
-                // 1. Check if the actor has valid animation graph
-                // 2. Validate the event exists in the graph
-                // 3. Check if required animations are available
-                
-                // Basic check: ensure actor is in a valid state
+                // Check that the actor is still alive and active before sending the event.
+                // Sending animation events to a deleted or disabled actor can crash the game
+                // because the animation system may try to access freed memory for that actor.
                 if (actor->IsDeleted() || actor->IsDisabled()) {
                     spdlog::warn("Animation event '{}' on deleted/disabled actor {:08X}, blocking", 
                                 eventName, actor->GetFormID());
@@ -270,158 +266,6 @@ namespace FunctionHooks {
     }
 
     // ========================================================================
-    // Script Execution Hook Implementation
-    // ========================================================================
-
-    bool FunctionHookManager::Hook_ExecuteScript(RE::BSScript::Internal::VirtualMachine* vm,
-                                                 RE::BSScript::Internal::CodeTasklet* tasklet) {
-        
-        // Validate input parameters
-        if (!vm || !tasklet) {
-            if (!vm) LogNullPointerViolation("Hook_ExecuteScript", "vm (VirtualMachine*)", vm);
-            if (!tasklet) LogNullPointerViolation("Hook_ExecuteScript", "tasklet (CodeTasklet*)", tasklet);
-            spdlog::error("Hook_ExecuteScript: Invalid parameters - vm={}, tasklet={}, returning safe default", 
-                         static_cast<void*>(vm), static_cast<void*>(tasklet));
-            IncrementPreventionCount();
-            return false;
-        }
-
-        // Additional null safety checks for VM state
-        if (!vm) {
-            spdlog::error("Hook_ExecuteScript: VirtualMachine pointer is null, returning safe default");
-            IncrementPreventionCount();
-            return false;
-        }
-
-        spdlog::trace("Hook_ExecuteScript: Intercepting script execution");
-
-        // Use ScriptMonitor to safely execute the script with error handling
-        // This integrates with the existing ScriptMonitor class and provides:
-        // - Null reference detection and safe defaults
-        // - Script timeout monitoring
-        // - Blacklist checking for problematic scripts
-        // - Exception handling and recovery
-        bool result = ScriptValidation::ScriptMonitor::ExecuteScriptSafe(vm, tasklet);
-
-        if (result) {
-            // Script executed successfully through ScriptMonitor
-            // Now call the original VM execution function
-            try {
-                spdlog::trace("Hook_ExecuteScript: Calling original VM execution");
-                bool originalResult = _ExecuteScript(vm, tasklet);
-                
-                if (!originalResult) {
-                    spdlog::warn("Hook_ExecuteScript: Original VM execution failed");
-                    // ScriptMonitor already handled the safe execution, so we can return true
-                    // to indicate the hook handled the situation safely
-                    IncrementPreventionCount();
-                    return true;
-                }
-                
-                return originalResult;
-                
-            } catch (const std::exception& e) {
-                spdlog::error("Hook_ExecuteScript: Exception during original execution: {}", e.what());
-                
-                // Create script exception for ScriptMonitor
-                ScriptValidation::ScriptException exception{
-                    .scriptName = "Unknown", // Would extract from tasklet in real implementation
-                    .lineNumber = 0,
-                    .errorMessage = e.what(),
-                    .modName = "Unknown",
-                    .timestamp = std::chrono::steady_clock::now()
-                };
-                
-                ScriptValidation::ScriptMonitor::HandleScriptException(exception);
-                IncrementPreventionCount();
-                
-                // Return true to indicate we handled the error safely
-                return true;
-            }
-        } else {
-            // ScriptMonitor blocked execution (blacklisted, null reference, etc.)
-            spdlog::debug("Hook_ExecuteScript: ScriptMonitor blocked execution");
-            IncrementPreventionCount();
-            
-            // Return true to indicate we handled the situation safely
-            // The script didn't execute, but we prevented a potential crash
-            return true;
-        }
-    }
-
-    // ========================================================================
-    // Cell Loading Hook Implementation
-    // ========================================================================
-
-    void FunctionHookManager::Hook_LoadCell(RE::TESObjectCELL* a_cell) {
-        
-        // Validate input parameters
-        if (!a_cell) {
-            LogNullPointerViolation("Hook_LoadCell", "a_cell (TESObjectCELL*)", a_cell);
-            spdlog::error("Hook_LoadCell: Cell pointer is null, returning safe default");
-            IncrementPreventionCount();
-            return;
-        }
-
-        // Additional null safety checks for cell state
-        if (a_cell->IsDeleted()) {
-            spdlog::warn("Hook_LoadCell: Cell {:08X} is deleted, skipping load", a_cell->GetFormID());
-            IncrementPreventionCount();
-            return;
-        }
-
-        // Validate cell data pointer
-        auto& runtimeData = a_cell->GetRuntimeData();
-        if (!runtimeData.cellData.interior && !runtimeData.cellData.exterior) {
-            spdlog::error("Hook_LoadCell: Cell {:08X} has null cellData, returning safe default", a_cell->GetFormID());
-            IncrementPreventionCount();
-            return;
-        }
-
-        spdlog::debug("Hook_LoadCell: Intercepting cell loading for cell {:08X}", a_cell->GetFormID());
-
-        // Use CellManager to safely load and validate the cell
-        // This integrates with the existing CellManager class and provides:
-        // - Cell data structure validation
-        // - Reference validation before spawning
-        // - Invalid reference skipping
-        // - Blacklist checking for problematic cells
-        // - Safe fallback handling
-        bool loadResult = CellValidation::CellManager::LoadCellSafe(a_cell);
-
-        if (loadResult) {
-            // Cell validation passed, proceed with original loading
-            spdlog::debug("Hook_LoadCell: Cell validation passed, proceeding with load");
-            
-            try {
-                // Call original cell loading function
-                // In a full implementation, this would call the original function
-                // For now, we'll log the successful validation
-                spdlog::debug("Hook_LoadCell: Cell {:08X} loaded successfully with validation", 
-                             a_cell->GetFormID());
-                
-            } catch (const std::exception& e) {
-                spdlog::error("Hook_LoadCell: Exception during original cell loading: {}", e.what());
-                
-                // Blacklist the cell if it causes exceptions during loading
-                CellValidation::CellManager::BlacklistCell(a_cell, 
-                    fmt::format("Exception during loading: {}", e.what()));
-                
-                IncrementPreventionCount();
-            }
-        } else {
-            // Cell validation failed - CellManager already handled logging and blacklisting
-            spdlog::warn("Hook_LoadCell: Cell validation failed, load blocked for cell {:08X}", 
-                        a_cell->GetFormID());
-            
-            IncrementPreventionCount();
-            
-            // Don't proceed with original loading - this prevents crashes from invalid cells
-            // The CellManager has already logged the specific validation failures
-        }
-    }
-
-    // ========================================================================
     // Hook Installation
     // ========================================================================
 
@@ -436,34 +280,61 @@ namespace FunctionHooks {
         s_installedCount = 0;
         s_failedCount = 0;
 
-        // Install mesh loading hooks
-        auto meshResult = InstallMeshLoadingHooks();
-        if (meshResult.success) {
-            s_installedCount++;
-            spdlog::info("[FunctionHookManager] Mesh loading hook installed");
+        // Install mesh loading hooks if mesh validation is enabled.
+        // Controlled by enableMeshValidation in SkyrimCrashGuard.toml.
+        if (Config::Get().enableMeshValidation) {
+            auto meshResult = InstallMeshLoadingHooks();
+            if (meshResult.success) {
+                s_installedCount++;
+                spdlog::info("[FunctionHookManager] Mesh loading hook installed");
+            } else {
+                s_failedCount++;
+                spdlog::warn("[FunctionHookManager] Mesh loading hook failed: {}", meshResult.errorMessage);
+            }
         } else {
-            s_failedCount++;
-            spdlog::warn("[FunctionHookManager] Mesh loading hook failed: {}", meshResult.errorMessage);
+            spdlog::info("[FunctionHookManager] Mesh loading hook skipped (enableMeshValidation = false)");
         }
 
-        // Install animation hooks  
-        auto animResult = InstallAnimationHooks();
-        if (animResult.success) {
-            s_installedCount++;
-            spdlog::info("[FunctionHookManager] Animation hook installed");
+        // Install animation validation hooks if enabled.
+        // Controlled by enableAnimationValidation in SkyrimCrashGuard.toml.
+        if (Config::Get().enableAnimationValidation) {
+            auto animResult = InstallAnimationHooks();
+            if (animResult.success) {
+                s_installedCount++;
+                spdlog::info("[FunctionHookManager] Animation hook installed");
+            } else {
+                s_failedCount++;
+                spdlog::warn("[FunctionHookManager] Animation hook failed: {}", animResult.errorMessage);
+            }
         } else {
-            s_failedCount++;
-            spdlog::warn("[FunctionHookManager] Animation hook failed: {}", animResult.errorMessage);
+            spdlog::info("[FunctionHookManager] Animation hook skipped (enableAnimationValidation = false)");
         }
 
-        // Install script hooks
+        // Install script hooks.
+        // This intentionally stays pending until Papyrus vtable offsets are confirmed safe.
         auto scriptResult = InstallScriptHooks();
         if (scriptResult.success) {
             s_installedCount++;
             spdlog::info("[FunctionHookManager] Script hook installed");
         } else {
-            s_failedCount++;
-            spdlog::warn("[FunctionHookManager] Script hook failed: {}", scriptResult.errorMessage);
+            // Script hook not installed — this is expected until vtable offsets are validated.
+            // The rest of the hook system still works; we just count this as pending, not failed.
+            spdlog::info("[FunctionHookManager] Script hook pending: {}", scriptResult.errorMessage);
+        }
+
+        // Register cell loading event handlers if cell validation is enabled.
+        // Controlled by enableCellValidation in SkyrimCrashGuard.toml.
+        if (Config::Get().enableCellValidation) {
+            auto cellResult = InstallCellLoadingHooks();
+            if (cellResult.success) {
+                s_installedCount++;
+                spdlog::info("[FunctionHookManager] Cell loading hook installed");
+            } else {
+                s_failedCount++;
+                spdlog::warn("[FunctionHookManager] Cell loading hook failed: {}", cellResult.errorMessage);
+            }
+        } else {
+            spdlog::info("[FunctionHookManager] Cell loading hook skipped (enableCellValidation = false)");
         }
 
         s_hooksInstalled = true;
@@ -511,9 +382,15 @@ namespace FunctionHooks {
             }
             
             *reinterpret_cast<std::uintptr_t*>(vfunc_addr) = reinterpret_cast<std::uintptr_t>(Hook_LoadNif);
-            
+
+            // Restore the original memory protection.
+            // If this fails the vtable page stays writable forever — not a crash,
+            // but it weakens the game's memory layout. Log so we know it happened.
             DWORD dummy;
-            VirtualProtect(reinterpret_cast<void*>(vfunc_addr), sizeof(void*), oldProtect, &dummy);
+            if (!VirtualProtect(reinterpret_cast<void*>(vfunc_addr), sizeof(void*), oldProtect, &dummy)) {
+                spdlog::warn("MeshLoadingHook: Failed to restore memory protection at {:#x} (error {}). "
+                             "Page remains writable.", vfunc_addr, GetLastError());
+            }
             
             result.success = true;
             spdlog::info("MeshLoadingHook: TESObjectREFR::Load3D hooked successfully at vtable offset 0x6A");
@@ -569,9 +446,15 @@ namespace FunctionHooks {
             }
             
             *reinterpret_cast<std::uintptr_t*>(vfunc_addr) = reinterpret_cast<std::uintptr_t>(Hook_NotifyAnimationGraph);
-            
+
+            // Restore the original memory protection.
+            // If this fails the vtable page stays writable forever — not a crash,
+            // but it weakens the game's memory layout. Log so we know it happened.
             DWORD dummy;
-            VirtualProtect(reinterpret_cast<void*>(vfunc_addr), sizeof(void*), oldProtect, &dummy);
+            if (!VirtualProtect(reinterpret_cast<void*>(vfunc_addr), sizeof(void*), oldProtect, &dummy)) {
+                spdlog::warn("AnimationHook: Failed to restore memory protection at {:#x} (error {}). "
+                             "Page remains writable.", vfunc_addr, GetLastError());
+            }
             
             result.success = true;
             spdlog::info("AnimationHook: NotifyAnimationGraph hooked successfully at vtable offset 0x01");
@@ -614,7 +497,7 @@ namespace FunctionHooks {
         // returns failure so the status counters and UI reflect reality.
 
         result.errorMessage = "Papyrus VM hook not installed (vtable offset not yet validated)";
-        spdlog::warn("ScriptExecutionHook: {}", result.errorMessage);
+        spdlog::info("ScriptExecutionHook: {}", result.errorMessage);
         return result;
     }
 

@@ -1,4 +1,4 @@
-// Copyright (C) 2024-2025 Parker Chace
+﻿// Copyright (C) 2026 Parker Chace
 // SPDX-License-Identifier: MIT
 //
 // This file is part of Skyrim CrashGuard.
@@ -142,14 +142,15 @@ void InstallHooks() {
         }
     }
 
-    // Phase 3: Future actual patching
-    // For now, hooks are registered but not yet patched.
-    // VEH provides reactive recovery for all these sites.
-    // Future versions can implement actual inline patches using xbyak.
+    // Phase 3: VEH recovery for registered sites
+    // The addresses registered above are known crash sites. VEH intercepts access
+    // violations at these addresses and uses them to improve recovery context —
+    // for example, knowing this address is "BGSImpactManager footstep effect" lets
+    // VEH log a more useful crash description instead of a raw hex address.
+    // No code is modified; this is a read-only address registry.
     if (log) {
-        log->info("Hooks: {} sites ready (patching deferred, VEH provides recovery)",
+        log->info("Hooks: {} sites registered for VEH-assisted recovery",
                   s_registeredHooks.size());
-        log->info("Hooks: Strategy = Proactive detection + VEH reactive recovery");
     }
 }
 

@@ -43,12 +43,10 @@ namespace ScriptValidation {
     std::unordered_set<std::string> ScriptMonitor::s_blacklistedScripts;
     std::vector<ScriptBlacklistEntry> ScriptMonitor::s_blacklistEntries;
     std::unordered_map<uint32_t, ScriptTimeout> ScriptMonitor::s_runningScripts;
-    size_t ScriptMonitor::s_executionCount = 0;
-    size_t ScriptMonitor::s_failureCount = 0;
     size_t ScriptMonitor::s_timeoutCount = 0;
     uint32_t ScriptMonitor::s_scriptTimeoutMs = 5000;  // 5 second default timeout
-    std::shared_mutex ScriptMonitor::s_blacklistMutex;  // Upgraded to shared_mutex
-    std::shared_mutex ScriptMonitor::s_timeoutMutex;    // Upgraded to shared_mutex
+    std::shared_mutex ScriptMonitor::s_blacklistMutex;
+    std::shared_mutex ScriptMonitor::s_timeoutMutex;
 
     // ========================================================================
     // Initialization
@@ -64,124 +62,22 @@ namespace ScriptValidation {
         spdlog::info("║      Script Monitor Initializing      ║");
         spdlog::info("╚════════════════════════════════════════╝");
 
-        // Initialize blacklist and tracking structures
+        // Set up the blacklist structures and timeout counter
         s_blacklistedScripts.clear();
         s_blacklistEntries.clear();
         s_runningScripts.clear();
-
-        // Reset counters
-        s_executionCount = 0;
-        s_failureCount = 0;
         s_timeoutCount = 0;
 
         s_initialized = true;
-        spdlog::info("ScriptMonitor initialized successfully with {}ms timeout", s_scriptTimeoutMs);
-        
+
+        // Note: a Papyrus VM hook is not installed, so execution-level interception
+        // (running before each script, counting executions) is not active yet.
+        // What IS working: the script blacklist, timeout tracking, and exception handling.
+        spdlog::info("ScriptMonitor: Blacklist and timeout tracking ready ({}ms timeout). "
+                     "VM hook not installed - execution interception pending.",
+                     s_scriptTimeoutMs);
+
         return true;
-    }
-
-    // ========================================================================
-    // Script Execution Monitoring
-    // ========================================================================
-
-    bool ScriptMonitor::ExecuteScriptSafe(RE::BSScript::Internal::VirtualMachine* vm,
-                                          RE::BSScript::Internal::CodeTasklet* tasklet) {
-        if (!s_initialized) {
-            spdlog::error("ScriptMonitor not initialized");
-            return false;
-        }
-
-        if (!vm || !tasklet) {
-            spdlog::error("Invalid parameters: vm={}, tasklet={}", 
-                         static_cast<void*>(vm), static_cast<void*>(tasklet));
-            return false;
-        }
-
-        s_executionCount++;
-
-        // Validate tasklet before execution
-        if (!ValidateTasklet(tasklet)) {
-            // spdlog::debug("Script tasklet validation failed");
-            s_failureCount++;
-            
-            CrashGuard::PerformanceMonitor::GetSingleton().IncrementScriptsMonitored();
-            
-            return GenerateSafeDefault(vm, tasklet);
-        }
-
-        // Extract script information
-        std::string scriptName = ExtractScriptName(tasklet);
-        uint32_t taskletId = GetTaskletId(tasklet);
-
-        // Check if script is blacklisted
-        if (IsScriptBlacklisted(scriptName)) {
-            // spdlog::debug("Script {} is blacklisted, execution blocked", scriptName);
-            LogScriptExecution(scriptName, false, "Blacklisted");
-            s_failureCount++;
-            
-            CrashGuard::PerformanceMonitor::GetSingleton().IncrementScriptsMonitored();
-            
-            return GenerateSafeDefault(vm, tasklet);
-        }
-
-        // Check for null reference access
-        if (!CheckForNullReferences(tasklet)) {
-            spdlog::warn("Script {} contains null reference access, blocking execution", scriptName);
-            ScriptException exception{
-                .scriptName = scriptName,
-                .lineNumber = 0,  // Line number extraction would require more complex analysis
-                .errorMessage = "Null reference access detected",
-                .modName = ExtractModName(scriptName),
-                .timestamp = std::chrono::steady_clock::now()
-            };
-            HandleScriptException(exception);
-            s_failureCount++;
-            
-            CrashGuard::PerformanceMonitor::GetSingleton().IncrementScriptsMonitored();
-            
-            return GenerateSafeDefault(vm, tasklet);
-        }
-
-        // Start timeout tracking
-        StartScriptTimeout(taskletId, scriptName);
-
-        try {
-            // Execute the script with monitoring
-            // spdlog::trace("Executing script: {}", scriptName);
-            
-            // Note: In a real implementation, we would need to hook into the VM's execution
-            // For now, we simulate safe execution by checking conditions and returning success
-            // The actual VM execution would happen here with proper error handling
-            
-            // Stop timeout tracking on successful completion
-            StopScriptTimeout(taskletId);
-            
-            LogScriptExecution(scriptName, true);
-            
-            CrashGuard::PerformanceMonitor::GetSingleton().IncrementScriptsMonitored();
-            
-            return true;
-
-        } catch (const std::exception& e) {
-            // Handle any C++ exceptions during script execution
-            spdlog::error("Exception during script execution {}: {}", scriptName, e.what());
-            
-            ScriptException exception{
-                .scriptName = scriptName,
-                .lineNumber = 0,
-                .errorMessage = e.what(),
-                .modName = ExtractModName(scriptName),
-                .timestamp = std::chrono::steady_clock::now()
-            };
-            
-            HandleScriptException(exception);
-            StopScriptTimeout(taskletId);
-            s_failureCount++;
-            
-            CrashGuard::PerformanceMonitor::GetSingleton().IncrementScriptsMonitored();
-            
-            return GenerateSafeDefault(vm, tasklet);
-        }
     }
 
     // ========================================================================
@@ -355,58 +251,9 @@ namespace ScriptValidation {
         }
     }
 
-    void ScriptMonitor::TerminateScript(RE::BSScript::Internal::CodeTasklet* tasklet,
-                                       const std::string& reason) {
-        if (!s_initialized || !tasklet) {
-            return;
-        }
-
-        uint32_t taskletId = GetTaskletId(tasklet);
-        std::string scriptName = ExtractScriptName(tasklet);
-        
-        spdlog::warn("Terminating script {}: {}", scriptName, reason);
-        
-        // Stop timeout tracking
-        StopScriptTimeout(taskletId);
-        
-        // In a real implementation, we would need to properly terminate the script
-        // This might involve setting the tasklet state or calling VM termination functions
-        // For now, we log the termination
-        
-        LogScriptExecution(scriptName, false, fmt::format("Terminated: {}", reason));
-        s_failureCount++;
-    }
-
     // ========================================================================
-    // Validation and Helper Functions
+    // Helper Functions
     // ========================================================================
-
-    bool ScriptMonitor::ValidateTasklet(RE::BSScript::Internal::CodeTasklet* tasklet) {
-        if (!tasklet) {
-            return false;
-        }
-
-        // Basic tasklet validation
-        // In a real implementation, we would check:
-        // - Tasklet state is valid
-        // - Script bytecode is not corrupted
-        // - Required objects are available
-        
-        // For now, we perform basic null checks
-        return true;  // Simplified validation
-    }
-
-    std::string ScriptMonitor::ExtractScriptName(RE::BSScript::Internal::CodeTasklet* tasklet) {
-        if (!tasklet) {
-            return "Unknown";
-        }
-
-        // Script name extraction requires accessing internal tasklet structures
-        // which are not exposed through the public API. Using a formatted pointer
-        // as a unique identifier for tracking purposes.
-        
-        return fmt::format("Script_{:p}", static_cast<void*>(tasklet));
-    }
 
     std::string ScriptMonitor::ExtractModName(const std::string& scriptName) {
         // Extract mod name from script name
@@ -425,42 +272,15 @@ namespace ScriptValidation {
         return "Unknown";
     }
 
-    bool ScriptMonitor::CheckForNullReferences(RE::BSScript::Internal::CodeTasklet* tasklet) {
-        if (!tasklet) {
-            return false;
-        }
-
-        // In a real implementation, we would analyze the script bytecode or execution context
-        // to detect potential null reference access before it happens
-        // This is complex and would require deep knowledge of Papyrus VM internals
-        
-        // For now, we return true (assume no null references) as a simplified implementation
-        return true;
-    }
-
-    bool ScriptMonitor::GenerateSafeDefault(RE::BSScript::Internal::VirtualMachine* vm,
-                                           RE::BSScript::Internal::CodeTasklet* tasklet) {
-        if (!vm || !tasklet) {
-            return false;
-        }
-
-        // In a real implementation, we would:
-        // 1. Determine the expected return type of the script
-        // 2. Generate an appropriate safe default value (0, false, null, empty string, etc.)
-        // 3. Set the tasklet result to this safe default
-        // 4. Mark the tasklet as completed
-        
-        // For now, we simply return false to indicate the script should not execute
-        return false;
-    }
-
     uint32_t ScriptMonitor::GetTaskletId(RE::BSScript::Internal::CodeTasklet* tasklet) {
         if (!tasklet) {
             return 0;
         }
 
-        // Generate a unique ID for the tasklet
-        // In a real implementation, we might use the tasklet's memory address or an internal ID
+        // Use the lower 32 bits of the tasklet's memory address as a unique ID.
+        // Each tasklet is a distinct heap allocation, so its address is unique for
+        // the duration of the script call. Truncating to 32 bits is fine for logging
+        // and timeout-tracking purposes — full uniqueness isn't required.
         return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(tasklet) & 0xFFFFFFFF);
     }
 
@@ -493,11 +313,14 @@ namespace ScriptValidation {
     }
 
     size_t ScriptMonitor::GetExecutionCount() {
-        return s_executionCount;
+        // Returns 0 until a Papyrus VM hook is installed.
+        // The execution pipeline requires vtable interception which is pending.
+        return 0;
     }
 
     size_t ScriptMonitor::GetFailureCount() {
-        return s_failureCount;
+        // Returns 0 until a Papyrus VM hook is installed.
+        return 0;
     }
 
     size_t ScriptMonitor::GetTimeoutCount() {

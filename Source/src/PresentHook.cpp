@@ -126,9 +126,11 @@ namespace CrashGuard {
     bool PresentHook::Install() {
         spdlog::info("[PresentHook] Installing Present hook");
         
-        // VR uses SteamVR compositor instead of standard D3D11 swap chain
-        // The ImGui overlay doesn't work on VR without hooking IVRCompositor::Submit
-        // For now, skip the overlay installation on VR and use TOML config only
+        // Skyrim VR uses the SteamVR compositor instead of a D3D11 swap chain.
+        // The ImGui overlay only works on the standard Present hook, which doesn't
+        // exist in VR. To show ImGui in VR you'd need to hook IVRCompositor::Submit,
+        // which is out of scope. Unless the user explicitly opts in via allowInVR = true,
+        // we skip overlay installation on VR.
         if (REL::Module::IsVR() && !Config::Get().allowImGuiInVR) {
             spdlog::info("[PresentHook] VR detected - ImGui overlay disabled (use TOML config)");
             spdlog::info("[PresentHook] To configure CrashGuard on VR, edit SkyrimCrashGuard.toml and set allowInVR = true in [ImGui]");

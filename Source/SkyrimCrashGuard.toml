@@ -7,115 +7,91 @@
 enabled = true
 logLevel = 1  # 0=off, 1=errors/warnings only, 2=info, 3=debug, 4=trace
 
-[Hotkeys]
-# Menu hotkey (default: F11)
-# Change this if you want to use a different key
-# Available keys: F1-F12, Insert, Delete, Home, End, PageUp, PageDown, etc.
-menuToggleKey = "F11"
-
-# For controller-only users (Steam Deck, ROG Ally, VR):
-# Native controller binding is not supported due to technical limitations.
-# Use Steam Input or similar software to map a controller button to the menuKey.
-# Example Steam Input combos: Back+Start, L4+R4, Hold Select (2s)
-
 [VEH]
-# Vectored Exception Handler (Layer 3)
+# Vectored Exception Handler — the core recovery engine.
+# It intercepts CPU exceptions (null pointer crashes, bad reads/writes, etc.)
+# before the game can crash and attempts to recover automatically.
 enabled = true
-cascadeLimit = 3  # Max recovery attempts during cascade
+cascadeLimit = 3  # How many recovery attempts to allow for a single crash event.
+                  # Higher = more thorough recovery but slower. Default 3 is safe for most systems.
 
-# High-frequency crash throttling
-# Reduces performance impact when mods crash repeatedly (e.g., BetterThirdPersonSelection)
-# After N crashes in X seconds, switches to silent recovery mode (still recovers, no logging)
-enableModuleThrottling = true  # Enable per-module crash frequency throttling
-moduleThrottleThreshold = 20   # Crashes before entering silent mode
-moduleThrottleWindowMs = 2000  # Tracking window in milliseconds (2 seconds)
-moduleSilentDurationMs = 30000 # Duration of silent recovery mode (30 seconds)
-moduleRelogIntervalMs = 60000  # Re-log interval while in silent mode (60 seconds)
+# High-frequency crash throttling:
+# If a mod crashes repeatedly (e.g., dozens of times per second), CrashGuard
+# switches to "silent mode" so it stops flooding the log file with identical entries.
+# It still recovers the crashes — it just stops logging them until things calm down.
+enableModuleThrottling = true   # Enable per-module crash frequency throttling
+moduleThrottleThreshold = 20    # Crashes before entering silent mode
+moduleThrottleWindowMs = 2000   # Tracking window in milliseconds (2 seconds)
+moduleSilentDurationMs = 30000  # Duration of silent recovery mode (30 seconds)
+moduleRelogIntervalMs = 60000   # Re-log interval while in silent mode (60 seconds)
 
 [Patches]
-# Proactive engine patches
+# Proactive engine patches — CrashGuard registers known crash sites with VEH.
+# No game memory is modified; these are read-only address registrations used
+# to give VEH better recovery context when a crash happens at a known location.
 enabled = true
 
 [ProactiveValidation]
-# Layer 1: Validate data before it reaches the engine
-enableMeshValidation = true
-enableAnimationValidation = true
-enableScriptMonitoring = true
-enableCellValidation = true
-
-[SafetyChecks]
-# Layer 2: Null pointer and bounds safety
-enableNullChecks = true
-enableBoundsChecks = true
-enableFormIDChecks = true
-
-[StateManagement]
-# Layer 5: Transactional state management
-enableStateSnapshots = true
-maxSnapshotsPerSession = 100
+# These flags enable validation checks that run BEFORE the engine processes data.
+# Turn individual ones off if they cause performance issues or conflicts.
+enableMeshValidation = true      # Check 3D mesh data for corruption (NaN positions, bad normals)
+enableAnimationValidation = true # Check animation graph transitions for invalid state
+enableScriptMonitoring = true    # Enable script timeout tracking and blacklist
+enableCellValidation = true      # Check cell data integrity when loading new areas
 
 [Learning]
-# Layer 6: Pattern learning and strategy optimization
+# CrashGuard learns which recovery strategies work best for each crash address.
+# After many recoveries, it will use the fastest working strategy first.
 enableLearning = true
 patternDatabasePath = "Data/SKSE/Plugins/CrashGuard/patterns.json"
 
 [Notifications]
-# User notification settings
+# Controls whether the in-game overlay notification area is shown at all.
 showNotifications = true
-autoRecoverSafe = true        # Auto-recover Safe severity crashes
-autoRecoverWarning = false    # Prompt for Warning severity
-notificationTimeoutSeconds = 30
+notificationTimeoutSeconds = 30  # How long the notification area stays visible
 
 [UserNotifications]
 # ═══════════════════════════════════════════════════════════════════════
 # User Notification Settings
 # ═══════════════════════════════════════════════════════════════════════
-# Control when CrashGuard asks for your input vs auto-recovering crashes.
-# 
+# Controls when CrashGuard shows you a toast notification after a recovery.
+#
 # Severity Levels:
 #   Safe     - Visual glitches only (rendering, UI, cosmetic)
 #   Warning  - Missing resources, null pointers (recoverable, no data loss)
 #   Critical - Save data or persistent state affected (corruption risk)
 #   Fatal    - Stack corruption, unrecoverable (cannot safely continue)
 
-# When to show user choice dialog (true = ask user, false = auto-recover)
-NotifyOnSafe = false          # Visual glitches - auto-recover silently
-NotifyOnWarning = false       # Missing resources - auto-recover with toast
-NotifyOnCritical = true       # Save data risk - ALWAYS ask user (RECOMMENDED)
-NotifyOnFatal = true          # Unrecoverable - ALWAYS ask user (RECOMMENDED)
+NotifyOnSafe = false          # Visual glitches — recovered silently
+NotifyOnWarning = false       # Missing resources — recovered with toast
+NotifyOnCritical = true       # Save data risk — always notify (recommended)
+NotifyOnFatal = true          # Unrecoverable — always notify (recommended)
 
-# Toast notifications for auto-recovered crashes
-ShowToastForAutoRecovery = true    # Show brief notification for Warning crashes
-ToastDurationSeconds = 5           # How long toast appears (seconds)
+ShowToastForAutoRecovery = true    # Show brief notification for auto-recovered crashes
+ToastDurationSeconds = 5           # How long the toast notification stays on screen
 
-# Dialog behavior
-DialogTimeoutSeconds = 30          # Auto-select after this many seconds
+DialogTimeoutSeconds = 30          # Auto-dismiss notification after this many seconds
 TimeoutDefaultAction = "Continue"  # Options: Continue, LoadLastSave, MainMenu
 
-# Advanced options
-ShowTechnicalDetails = false       # Show stack traces and memory details in dialog
-AllowCrashAnywayOption = true      # Show "Let It Crash" button for debugging
-BatchSimilarCrashes = true         # Group similar crashes in one dialog (reduces spam)
-
-# Logging
-LogAllRecoveries = true            # Log all recoveries to F11 menu history
-LogSilentRecoveries = false        # Log even silent Safe recoveries
+ShowTechnicalDetails = false       # Show crash address and instruction in the notification
+AllowCrashAnywayOption = true      # Show "Let It Crash" button (useful for debugging)
 
 [Performance]
-scriptTimeoutMs = 5000
-maxRecoveryAttempts = 3
+scriptTimeoutMs = 5000    # How long a script can run before it is flagged as timed out (ms)
+maxRecoveryAttempts = 3   # Max times VEH will re-attempt recovery before giving up
 
 [Logging]
-enableDetailedLogging = false  # Set to true only for debugging
-logOnlyFailures = true  # Only log validation failures, not successes
-logSuccessfulRecoveries = false  # Don't log successful recoveries (reduces bloat)
-aggregatePatterns = true
-maxLogSizeMB = 10  # Rotate logs at 10MB
-maxLogFiles = 3  # Keep last 3 log files
+enableDetailedLogging = false  # Set to true only when debugging — greatly increases log size
+logOnlyFailures = true         # Only log validation failures, not routine successes
+logSuccessfulRecoveries = false  # Don't log every successful recovery (reduces bloat)
+aggregatePatterns = true         # Show [AGGREGATED xN] prefix when the same crash recurs
+maxLogSizeMB = 10  # Start a new log file when the current one reaches this size
+maxLogFiles = 3    # Keep this many log files before deleting old ones
 
 [InputDiagnostics]
-# F11 Menu Input Diagnostics (for troubleshooting gamepad mode issues)
-enableInputDiagnostics = true  # Set to true to enable detailed input logging
+# Set to true if the F11 menu isn't responding to keyboard input — this will log
+# every keypress so you can diagnose what's being blocked by another mod.
+enableInputDiagnostics = false
 
 [Compatibility]
 # Compatibility modes are automatically enabled when external tools are detected.
@@ -124,73 +100,59 @@ enableInputDiagnostics = true  # Set to true to enable detailed input logging
 # No manual configuration needed.
 
 [PapyrusValidation]
-enabled = true           # Enable Papyrus native function parameter validation
-logFailures = true       # Log when parameters fail validation
-strictMode = false       # Block function calls that fail validation (use with caution)
-
-# [ResourceLimiter], [NPCManagement], and [ActorLOD] sections removed in v2.3.6
-# These features were disabled/incomplete and never functional.
-# See CHANGELOG.md for details.
+enabled = true           # Validate Papyrus native function parameters before execution
+logFailures = true       # Log when a parameter fails validation
+strictMode = false       # If true, block calls that fail validation (use with caution)
 
 [InputConflictPrevention]
 # ═══════════════════════════════════════════════════════════════════════
 # Input Conflict Prevention System
 # ═══════════════════════════════════════════════════════════════════════
-# Prevents mouse wheel and D-pad from controlling camera/favorites while
-# scrolling through menus (dialogue, inventory, barter, etc.)
+# Prevents mouse wheel and D-pad from controlling camera or favorites
+# while you are scrolling through a menu (dialogue, inventory, barter, etc.)
 #
 # HOW IT WORKS:
-# 1. Vanilla menus are automatically detected (no configuration needed)
-# 2. Modded menus are auto-detected using pattern matching
-# 3. Detected menus are automatically learned and remembered forever
-# 4. You can manually add menus if auto-detection misses them
-#
-# INPUT TRACKING:
-# - When enabled, tracks which inputs each menu actually uses
-# - Logs detailed input profiles for diagnostics and mod developers
-# - Helps identify conflicts without interfering with mod functionality
-# - Check F11 menu Settings tab to see detected menus
-#
-# LOGGING:
-# - Set logLevel=2 (info) to see all menu open/close events
-# - Set logLevel=3 (debug) to see detailed detection info
-# - Check the log to find menu names if camera still zooms in a menu
+# 1. Vanilla menus are detected automatically — no setup needed
+# 2. Modded menus are auto-detected using name pattern matching
+# 3. Detected menus are remembered and applied every session
+# 4. You can add menus manually below if auto-detection misses one
 
 enabled = true                    # Enable input conflict prevention
-blockCameraZoom = true            # Block camera zoom (mouse wheel) in menus
-blockFavorites = true             # Block favorites menu (D-pad) in menus
-autoDetectModdedMenus = true      # Auto-detect and learn modded menus
-enableInputTracking = true        # Track which inputs each menu uses (for diagnostics)
+blockCameraZoom = true            # Block camera zoom (mouse wheel) while in menus
+blockFavorites = true             # Block favorites menu (D-pad) while in menus
+autoDetectModdedMenus = true      # Auto-detect and remember modded menus
+enableInputTracking = true        # Track which inputs each menu uses (diagnostics)
 
-# Custom scrollable menus (optional - only needed if auto-detection fails)
-# Add menu names here if camera still zooms in a specific modded menu
-# Check the log file to find the exact menu name
+# If the camera still zooms in a specific modded menu, add its internal name here.
+# Check the log file (logLevel=3) to find the exact menu name.
 # Example: customScrollableMenus = ["SkyUIMenu", "CustomDialogueMenu"]
 customScrollableMenus = []
 
-# NOTE: Auto-detected menus are saved to:
-#   Data/SKSE/Plugins/SkyrimCrashGuard/learned_menus.txt
-# You can edit that file directly to add/remove menus
-
 [ImGui]
 # ═══════════════════════════════════════════════════════════════════════
-# ImGui F11 Menu Settings
+# F11 Configuration Menu Settings
 # ═══════════════════════════════════════════════════════════════════════
-
-[Benchmark]
-# Built-in benchmark actions control (enabled by default for in-game profiling)
-allowBuiltinActions = true
-# The F11 menu provides a visual interface for configuration and diagnostics.
-# If you experience conflicts with other mods that use ImGui, you can disable it.
+# The F11 menu gives you a visual interface for all settings above,
+# plus real-time monitoring, crash history, and diagnostic tools.
 #
-# IMPORTANT: When disabled, ALL configuration must be done via this TOML file.
-# You will lose access to:
-#   - Visual configuration interface
-#   - Real-time resource monitoring
-#   - Crash history viewer
-#   - Performance metrics
-#   - Input diagnostics
-#
-# Only disable if you have a specific conflict with another mod's ImGui overlay.
+# Only set disableMenu = true if another mod's overlay conflicts with it.
+# When disabled, all configuration must be done in this TOML file only.
 
-disableMenu = false  # Set to true to completely disable the F11 menu
+disableMenu = false         # Set to true to completely disable the F11 menu
+enableDebugLogging = false  # Log ImGui rendering internals (for troubleshooting menu bugs)
+allowInVR = true            # Allow the F11 menu in VR mode
+
+[PerformanceOverlay]
+# A small on-screen overlay showing live stats (FPS, memory, recovery counts).
+# Press F11 to configure position and which stats to show.
+enabled = false
+showFPS = true
+showFrameTime = true
+showMemory = true
+showCrashStats = true
+showRecoveryStats = true
+showPatternStats = false
+position = 1          # 0=TopLeft, 1=TopRight, 2=BottomLeft, 3=BottomRight
+backgroundAlpha = 0.35
+textAlpha = 1.0
+scale = 1.0

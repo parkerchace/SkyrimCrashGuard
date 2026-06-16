@@ -244,16 +244,97 @@ namespace CrashGuard {
     }
     
     void HotkeyManager::LoadBindings() {
-        // Load from config file
-        // For now, use defaults
-        
-        spdlog::info("[HotkeyManager] Loaded hotkey bindings from config");
+        const std::string bindingsPath = "Data/SKSE/Plugins/SkyrimCrashGuard_hotkeys.toml";
+
+        if (!std::filesystem::exists(bindingsPath)) {
+            spdlog::info("[HotkeyManager] No bindings file at {}, using defaults", bindingsPath);
+            return;
+        }
+
+        try {
+            auto config = toml::parse(bindingsPath);
+            int loaded = 0;
+
+            for (auto& [actionName, action] : m_actions) {
+                if (!config.contains(actionName)) continue;
+
+                const auto& section = toml::find(config, actionName);
+                HotkeyBinding binding;
+
+                // Device
+                if (section.contains("device")) {
+                    auto dev = toml::find<std::string>(section, "device");
+                    binding.device = (dev == "Gamepad") ? InputDevice::Gamepad : InputDevice::Keyboard;
+                } else {
+                    binding.device = action.binding.device;
+                }
+
+                // Keys (stored as array of ints — Windows VK codes)
+                if (section.contains("keys")) {
+                    auto keysVec = toml::find<std::vector<int>>(section, "keys");
+                    if (!keysVec.empty()) {
+                        binding.keys = keysVec;
+                    }
+                }
+
+                // Hold duration in seconds
+                if (section.contains("holdDuration")) {
+                    binding.holdDuration = static_cast<float>(
+                        toml::find<double>(section, "holdDuration"));
+                } else {
+                    binding.holdDuration = action.binding.holdDuration;
+                }
+
+                if (!binding.keys.empty()) {
+                    action.binding = binding;
+                    ++loaded;
+                    spdlog::debug("[HotkeyManager] Loaded '{}': {}", actionName, binding.ToString());
+                }
+            }
+
+            spdlog::info("[HotkeyManager] Loaded {} binding(s) from {}", loaded, bindingsPath);
+
+        } catch (const toml::exception& e) {
+            spdlog::error("[HotkeyManager] Parse error in {}: {}", bindingsPath, e.what());
+        } catch (const std::exception& e) {
+            spdlog::error("[HotkeyManager] Failed to load bindings: {}", e.what());
+        }
     }
-    
+
     void HotkeyManager::SaveBindings() {
-        // Save to config file
-        
-        spdlog::info("[HotkeyManager] Saved hotkey bindings to config");
+        const std::string bindingsPath = "Data/SKSE/Plugins/SkyrimCrashGuard_hotkeys.toml";
+
+        try {
+            std::ofstream file(bindingsPath);
+            if (!file.is_open()) {
+                spdlog::error("[HotkeyManager] Cannot open {} for writing", bindingsPath);
+                return;
+            }
+
+            file << "# SkyrimCrashGuard Hotkey Bindings\n";
+            file << "# Auto-saved on shutdown. Keys are Windows VK codes (integers).\n\n";
+
+            for (const auto& [actionName, action] : m_actions) {
+                const auto& b = action.binding;
+                file << "[" << actionName << "]\n";
+                file << "device = \""
+                     << (b.device == InputDevice::Keyboard ? "Keyboard" : "Gamepad")
+                     << "\"\n";
+                file << "holdDuration = " << b.holdDuration << "\n";
+                file << "keys = [";
+                for (size_t i = 0; i < b.keys.size(); ++i) {
+                    if (i > 0) file << ", ";
+                    file << b.keys[i];
+                }
+                file << "]\n\n";
+            }
+
+            spdlog::info("[HotkeyManager] Saved {} binding(s) to {}",
+                        m_actions.size(), bindingsPath);
+
+        } catch (const std::exception& e) {
+            spdlog::error("[HotkeyManager] Failed to save bindings: {}", e.what());
+        }
     }
     
     HotkeyBinding HotkeyManager::GetDefaultKeyboardBinding() {

@@ -1,4 +1,4 @@
-// Copyright (C) 2024-2025 Parker Chace
+﻿// Copyright (C) 2026 Parker Chace
 // SPDX-License-Identifier: MIT
 //
 // This file is part of Skyrim CrashGuard.
@@ -188,9 +188,10 @@ namespace PapyrusValidation {
     }
 
     bool ParameterValidator::ValidateForm(RE::BSScript::Variable& parameter) {
-        // Forms are stored as handles in Papyrus
-        // This is a more complex validation that would require unpacking
-        // For now, we'll rely on object validation
+        // Form handles in Papyrus are stored the same way as object references
+        // at the bytecode level. ValidateObjectReference checks that the handle
+        // value is non-null and has a valid type — enough to prevent the most
+        // common crash: passing a deleted or None form to a native function.
         return ValidateObjectReference(parameter);
     }
 

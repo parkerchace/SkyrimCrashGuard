@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <unordered_map>
 #include <unordered_set>
 #include <shared_mutex>
@@ -95,12 +96,12 @@ namespace FormIDValidation {
         static std::unordered_set<RE::FormID> s_invalidFormIDs;
         static std::shared_mutex s_invalidMutex;
 
-        // Statistics
-        static size_t s_totalLookups;
-        static size_t s_validLookups;
-        static size_t s_invalidLookups;
-        static size_t s_cachedLookups;
-        static size_t s_preventionCount;
+        // Statistics — atomic for thread-safe increment from multiple callers
+        static std::atomic<size_t> s_totalLookups;
+        static std::atomic<size_t> s_validLookups;
+        static std::atomic<size_t> s_invalidLookups;
+        static std::atomic<size_t> s_cachedLookups;
+        static std::atomic<size_t> s_preventionCount;
 
         // Initialization flag
         static bool s_initialized;

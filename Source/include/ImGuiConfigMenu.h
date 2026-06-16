@@ -80,8 +80,12 @@ namespace CrashGuard {
         float m_validationErrorTimer = 0.0f;
         std::string m_validationErrorMessage;
         
-        // Saved values for change detection
+        // Saved values — used for per-field orange highlighting in the UI
         Config::Settings m_savedValues;
+
+        // Hash of m_savedValues — used by HasUnsavedChanges() to detect changes
+        // across ALL config fields without a per-field comparison chain.
+        uint64_t m_savedHash = 0;
         
         // Performance overlay settings
         OverlaySettings m_overlaySettings;

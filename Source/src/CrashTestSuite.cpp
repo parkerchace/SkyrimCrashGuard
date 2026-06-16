@@ -831,7 +831,7 @@ TestResult CrashTestSuite::Test_SequentialStress() {
         if (s_tier != TestTier::Demo) {
             result.resultMessage =
                 "All 10 crashes caught under real conditions (no test-mode bypasses). "
-                "Each stub ran at a distinct memory address — VEH treated each as a new "
+                "Each crash kernel ran at a distinct memory address — VEH treated each as a new "
                 "crash site. Cascade limiter and cooldown were active and did not interfere.";
         } else {
             result.resultMessage = "All 10 crashes caught and recovered  -  game kept running";
@@ -1156,11 +1156,19 @@ TestResult CrashTestSuite::RunTest(int index) {
         Test_MemoryPressureMonitor,
     };
 
+    // Preserve the constructor-assigned display strings so the list title and
+    // detail description don't change after a test runs.
+    std::string savedName = m_results[index].name;
+    std::string savedDesc = m_results[index].description;
+
     if (index < SYSTEM_TEST_START) {
         m_results[index] = vehTests[index]();
     } else {
         m_results[index] = sysTests[index - SYSTEM_TEST_START]();
     }
+
+    m_results[index].name        = std::move(savedName);
+    m_results[index].description = std::move(savedDesc);
     return m_results[index];
 }
 

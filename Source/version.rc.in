@@ -20,7 +20,7 @@ BEGIN
             VALUE "FileDescription", "@PROJECT_NAME@ - Engine-Level Crash Recovery"
             VALUE "FileVersion", "@PROJECT_VERSION_MAJOR@.@PROJECT_VERSION_MINOR@.@PROJECT_VERSION_PATCH@.0"
             VALUE "InternalName", "@PROJECT_NAME@"
-            VALUE "LegalCopyright", "Copyright (C) 2024-2025 Parker Chace"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Parker Chace"
             VALUE "OriginalFilename", "@PROJECT_NAME@.dll"
             VALUE "ProductName", "@PROJECT_NAME@"
             VALUE "ProductVersion", "@PROJECT_VERSION_MAJOR@.@PROJECT_VERSION_MINOR@.@PROJECT_VERSION_PATCH@.0"

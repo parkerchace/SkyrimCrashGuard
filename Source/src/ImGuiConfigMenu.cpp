@@ -36,6 +36,7 @@ namespace CrashGuard {
         
         // Store initial saved values for change detection
         m_savedValues = Config::Get();
+        m_savedHash   = m_savedValues.ComputeHash();
     }
 
     void ImGuiConfigMenu::Toggle() {
@@ -115,6 +116,7 @@ namespace CrashGuard {
             if (success) {
                 // Update saved values snapshot on successful save
                 m_savedValues = Config::Get();
+                m_savedHash   = m_savedValues.ComputeHash();
                 spdlog::info("Configuration saved to TOML file");
             } else {
                 m_saveErrorMessage = "Failed to write to TOML file. Check file permissions.";
@@ -141,7 +143,7 @@ namespace CrashGuard {
 
         // Update benchmark state machine only when benchmarks are enabled or active
         auto& bmConditional = BenchmarkManager::GetSingleton();
-        if (Config::Get().allowBuiltinActions || bmConditional.IsRunning() || bmConditional.IsInteractiveRunning() || !bmConditional.GetSnapshots().empty()) {
+        if (bmConditional.IsRunning() || bmConditional.IsInteractiveRunning() || !bmConditional.GetSnapshots().empty()) {
             bmConditional.Update();
         }
         
@@ -356,62 +358,6 @@ namespace CrashGuard {
             }
 
             ImGui::Spacing();
-            
-            if (ImGui::CollapsingHeader("Advanced Features")) {
-                ImGui::Indent();
-                ImGui::Spacing();
-
-                if (ImGui::Checkbox("Pattern Learning", &m_patternLearning)) {
-                    SaveSettings();
-                }
-                ImGui::TextWrapped("Learn from crash patterns to automatically prevent recurring issues");
-                ImGui::Spacing();
-
-                if (ImGui::Checkbox("User Notifications", &m_notifications)) {
-                    SaveSettings();
-                }
-                ImGui::TextWrapped("Show on-screen notifications when crashes are prevented");
-                
-                ImGui::Unindent();
-            }
-
-            ImGui::Spacing();
-            
-            if (ImGui::CollapsingHeader("Input Conflict Prevention")) {
-                ImGui::Indent();
-                ImGui::Spacing();
-                
-                ImGui::TextWrapped("Auto-detected menus with input blocking:");
-                ImGui::Spacing();
-                
-                // Get auto-detected menus from MenuInputObserver
-                auto& menuObserver = MenuInputObserver::GetSingleton();
-                const auto& detectedMenus = menuObserver.GetDetectedMenus();
-                
-                if (detectedMenus.empty()) {
-                    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "No custom menus detected yet");
-                    ImGui::TextWrapped("(Menus are detected when you open them)");
-                } else {
-                    ImGui::BeginChild("DetectedMenusList", ImVec2(0, 180), true);
-                    
-                    for (const auto& menuName : detectedMenus) {
-                        ImGui::BulletText("%s", menuName.c_str());
-                    }
-                    
-                    ImGui::EndChild();
-                    
-                    ImGui::Spacing();
-                    ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), 
-                        "[OK] %zu custom menu(s) protected", detectedMenus.size());
-                }
-                
-                ImGui::Spacing();
-                ImGui::TextWrapped("These menus have automatic input blocking to prevent conflicts with camera zoom, favorites, combat, and other game controls.");
-                
-                ImGui::Unindent();
-            }
-
-            ImGui::Spacing();
             ImGui::Spacing();
             
             if (ImGui::Button("Reset to Defaults", ImVec2(200, 30))) {
@@ -420,8 +366,6 @@ namespace CrashGuard {
                 m_animationValidation = true;
                 m_scriptMonitoring = true;
                 m_cellValidation = true;
-                m_patternLearning = true;
-                m_notifications = true;
                 SaveSettings();
             }
     }
@@ -730,26 +674,23 @@ namespace CrashGuard {
         // Top-right notification area - small and transparent
         ImGuiIO& io = ImGui::GetIO();
         ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - 10, 10), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
-        ImGui::SetNextWindowBgAlpha(0.35f); // More transparent
-        
-        ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | 
-                                ImGuiWindowFlags_AlwaysAutoResize |
-                                ImGuiWindowFlags_NoSavedSettings |
-                                ImGuiWindowFlags_NoFocusOnAppearing |
-                                ImGuiWindowFlags_NoNav |
-                                ImGuiWindowFlags_NoMove;
+        ImGui::SetNextWindowBgAlpha(0.40f);
+
+        ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration |
+                                 ImGuiWindowFlags_AlwaysAutoResize |
+                                 ImGuiWindowFlags_NoSavedSettings |
+                                 ImGuiWindowFlags_NoFocusOnAppearing |
+                                 ImGuiWindowFlags_NoNav |
+                                 ImGuiWindowFlags_NoMove;
 
         if (ImGui::Begin("CrashGuardNotifications", nullptr, flags)) {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.2f, 1.0f, 0.2f, 0.9f));
-            
-            // Show countdown
-            int countdown = (int)std::ceil(m_notificationTimer);
-            ImGui::Text("Skyrim Crash Guard Active");
-            
-            // Show keyboard binding
+
+            // ── Header ────────────────────────────────────────────────────────
+            ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 0.9f), "[+] Skyrim Crash Guard Active");
+
+            // ── Key binding hint ──────────────────────────────────────────────
             auto& hotkeyMgr = HotkeyManager::GetSingleton();
-            auto keyboardBinding = hotkeyMgr.GetBinding("ToggleMenu_Keyboard");
-            
+            auto  keyboardBinding = hotkeyMgr.GetBinding("ToggleMenu_Keyboard");
             if (!keyboardBinding.keys.empty()) {
                 std::string kbText = "Press ";
                 for (size_t i = 0; i < keyboardBinding.keys.size(); ++i) {
@@ -757,12 +698,42 @@ namespace CrashGuard {
                     kbText += KeyToString(keyboardBinding.keys[i], InputDevice::Keyboard);
                 }
                 kbText += " for menu";
-                ImGui::Text("%s", kbText.c_str());
+                ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 0.8f), "%s", kbText.c_str());
             }
-            
-            ImGui::Text("Countdown: %d", countdown);
-            
-            ImGui::PopStyleColor();
+
+            // ── Most recent crash recovery (if any occurred this session) ─────
+            auto& notif = RecoveryNotifications::GetSingleton();
+            if (notif.GetTotalRecoveries() > 0) {
+                auto recent = notif.GetRecentRecoveries(1);
+                if (!recent.empty()) {
+                    const auto& last = recent[0];
+                    ImGui::Separator();
+
+                    // Show crash source module — highlight mod DLLs in amber
+                    bool isMod = !last.moduleName.empty() &&
+                                 last.moduleName != "SkyrimSE.exe" &&
+                                 last.moduleName != "SkyrimVR.exe" &&
+                                 last.moduleName != "Skyrim.exe";
+                    if (!last.crashAddr.empty()) {
+                        ImVec4 addrCol = isMod
+                            ? ImVec4(1.0f, 0.68f, 0.18f, 0.9f)
+                            : ImVec4(0.55f, 0.55f, 0.55f, 0.9f);
+                        ImGui::TextColored(addrCol, "%s", last.crashAddr.c_str());
+                    }
+                    if (!last.decodedInstruction.empty()) {
+                        ImGui::TextColored(ImVec4(0.58f, 0.88f, 0.48f, 0.9f),
+                            "%s", last.decodedInstruction.c_str());
+                    }
+                    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 0.8f),
+                        "Recovered via: %s", last.strategy.c_str());
+                    ImGui::TextColored(ImVec4(0.45f, 0.45f, 0.45f, 0.8f),
+                        "Total this session: %zu", notif.GetTotalRecoveries());
+                }
+            }
+
+            // ── Countdown ─────────────────────────────────────────────────────
+            int countdown = (int)std::ceil(m_notificationTimer);
+            ImGui::TextColored(ImVec4(0.35f, 0.35f, 0.35f, 0.7f), "(%ds)", countdown);
         }
         ImGui::End();
     }
@@ -897,12 +868,21 @@ namespace CrashGuard {
                 ImGui::PopStyleColor();
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Maximum number of recovery attempts during a cascade of crashes. Prevents infinite recovery loops.");
+                ImGui::SetTooltip(
+                    "How many crashes CrashGuard will recover in a single 100ms window before "
+                    "it backs off and lets the exception propagate normally.\n\n"
+                    "Default: 3  (industry-standard safety margin)\n"
+                    "  - 1-2 crashes: common in normal play (NPC AI null, streaming hiccup)\n"
+                    "  - 3 crashes:   a bad frame with multiple simultaneous mod conflicts\n"
+                    "  - 4+ crashes:  runaway loop or heap corruption - recovery would mask\n"
+                    "                 the real problem and corrupt save state\n\n"
+                    "Raise this only if you see 'cascade limit' in the recovery log AND the "
+                    "additional crashes are genuine recoverable AV faults, not heap damage.");
             }
-            
+
             ImGui::Unindent();
         }
-        
+
         // Patches
         if (ImGui::CollapsingHeader("Patches")) {
             ImGui::Indent();
@@ -915,139 +895,21 @@ namespace CrashGuard {
                 ImGui::PopStyleColor();
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Enable runtime patches to fix known game engine bugs and vulnerabilities.");
+                ImGui::SetTooltip(
+                    "Registers pre-analysed crash sites with the VEH recovery chain (L1 Known Fix).\n\n"
+                    "For a small set of well-documented crash addresses - for example\n"
+                    "SkyrimSE.exe+0x14F400E (shadow frustum null actor) - CrashGuard stores the\n"
+                    "exact recovery action ahead of time. When VEH intercepts a crash at one of\n"
+                    "those addresses it skips instruction decode entirely and applies the fix\n"
+                    "instantly.\n\n"
+                    "This does NOT write to the game executable, inject code, or modify memory.\n"
+                    "It only registers address-to-action mappings inside CrashGuard's own tables.\n"
+                    "Disable only if you suspect a specific L1 fix is causing instability.");
             }
-            
+
             ImGui::Unindent();
         }
-        
-        // Proactive Validation
-        if (ImGui::CollapsingHeader("Proactive Validation")) {
-            ImGui::Indent();
-            
-            if (config.enableMeshValidation != m_savedValues.enableMeshValidation) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
-            }
-            ImGui::Checkbox("Mesh Validation", &config.enableMeshValidation);
-            if (config.enableMeshValidation != m_savedValues.enableMeshValidation) {
-                ImGui::PopStyleColor();
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Validate mesh files before loading to prevent crashes from corrupted or invalid mesh data.");
-            }
-            
-            if (config.enableAnimationValidation != m_savedValues.enableAnimationValidation) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
-            }
-            ImGui::Checkbox("Animation Validation", &config.enableAnimationValidation);
-            if (config.enableAnimationValidation != m_savedValues.enableAnimationValidation) {
-                ImGui::PopStyleColor();
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Validate animation files before loading to prevent crashes from corrupted or invalid animation data.");
-            }
-            
-            if (config.enableScriptMonitoring != m_savedValues.enableScriptMonitoring) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
-            }
-            ImGui::Checkbox("Script Monitoring", &config.enableScriptMonitoring);
-            if (config.enableScriptMonitoring != m_savedValues.enableScriptMonitoring) {
-                ImGui::PopStyleColor();
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Monitor Papyrus scripts for timeouts and errors to prevent script-related crashes.");
-            }
-            
-            if (config.enableCellValidation != m_savedValues.enableCellValidation) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
-            }
-            ImGui::Checkbox("Cell Validation", &config.enableCellValidation);
-            if (config.enableCellValidation != m_savedValues.enableCellValidation) {
-                ImGui::PopStyleColor();
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Validate cell data before loading to prevent crashes from corrupted or invalid cell data.");
-            }
-            
-            ImGui::Unindent();
-        }
-        
-        // Safety Checks
-        if (ImGui::CollapsingHeader("Safety Checks")) {
-            ImGui::Indent();
-            
-            if (config.enableNullChecks != m_savedValues.enableNullChecks) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
-            }
-            ImGui::Checkbox("Null Pointer Checks", &config.enableNullChecks);
-            if (config.enableNullChecks != m_savedValues.enableNullChecks) {
-                ImGui::PopStyleColor();
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Check for null pointers before dereferencing to prevent null pointer crashes.");
-            }
-            
-            if (config.enableBoundsChecks != m_savedValues.enableBoundsChecks) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
-            }
-            ImGui::Checkbox("Bounds Checks", &config.enableBoundsChecks);
-            if (config.enableBoundsChecks != m_savedValues.enableBoundsChecks) {
-                ImGui::PopStyleColor();
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Check array and buffer bounds before access to prevent buffer overflow crashes.");
-            }
-            
-            if (config.enableFormIDChecks != m_savedValues.enableFormIDChecks) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
-            }
-            ImGui::Checkbox("FormID Validation", &config.enableFormIDChecks);
-            if (config.enableFormIDChecks != m_savedValues.enableFormIDChecks) {
-                ImGui::PopStyleColor();
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Validate FormIDs before use to prevent crashes from invalid or missing game objects.");
-            }
-            
-            ImGui::Unindent();
-        }
-        
-        // State Management
-        if (ImGui::CollapsingHeader("State Management")) {
-            ImGui::Indent();
-            
-            if (config.enableStateSnapshots != m_savedValues.enableStateSnapshots) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
-            }
-            ImGui::Checkbox("State Snapshots", &config.enableStateSnapshots);
-            if (config.enableStateSnapshots != m_savedValues.enableStateSnapshots) {
-                ImGui::PopStyleColor();
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Enable state snapshots for rollback recovery. Allows restoring game state after a crash.");
-            }
-            
-            int tempMaxSnapshots = config.maxSnapshotsPerSession;
-            if (config.maxSnapshotsPerSession != m_savedValues.maxSnapshotsPerSession) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
-            }
-            if (ImGui::SliderInt("Max Snapshots Per Session", &tempMaxSnapshots, 10, 500)) {
-                if (ValidateIntRange(tempMaxSnapshots, 10, 500, "Max Snapshots Per Session")) {
-                    config.maxSnapshotsPerSession = tempMaxSnapshots;
-                } else {
-                    tempMaxSnapshots = config.maxSnapshotsPerSession;
-                }
-            }
-            if (config.maxSnapshotsPerSession != m_savedValues.maxSnapshotsPerSession) {
-                ImGui::PopStyleColor();
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Maximum number of state snapshots to keep in memory. Higher values use more memory but provide more recovery options.");
-            }
-            
-            ImGui::Unindent();
-        }
-        
+
         // Learning
         if (ImGui::CollapsingHeader("Learning")) {
             ImGui::Indent();
@@ -1101,31 +963,15 @@ namespace CrashGuard {
                 ImGui::PopStyleColor();
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Display on-screen notifications when crashes are prevented or recovered.");
+                ImGui::SetTooltip(
+                    "Show a brief on-screen toast when CrashGuard intercepts a crash.\n"
+                    "The toast displays the crash address, the responsible module (mod DLL\n"
+                    "or SkyrimSE.exe), and which recovery layer handled it.\n\n"
+                    "Safe and Warning level crashes are always auto-recovered silently by\n"
+                    "the VEH handler - CrashGuard cannot pause to ask the user mid-frame.\n"
+                    "This toggle only controls whether the notification appears afterward.");
             }
-            
-            if (config.autoRecoverSafe != m_savedValues.autoRecoverSafe) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
-            }
-            ImGui::Checkbox("Auto-Recover Safe", &config.autoRecoverSafe);
-            if (config.autoRecoverSafe != m_savedValues.autoRecoverSafe) {
-                ImGui::PopStyleColor();
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Automatically recover from crashes classified as 'safe' without user intervention.");
-            }
-            
-            if (config.autoRecoverWarning != m_savedValues.autoRecoverWarning) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
-            }
-            ImGui::Checkbox("Auto-Recover Warning", &config.autoRecoverWarning);
-            if (config.autoRecoverWarning != m_savedValues.autoRecoverWarning) {
-                ImGui::PopStyleColor();
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Automatically recover from crashes classified as 'warning' level. May cause instability.");
-            }
-            
+
             int tempNotificationTimeout = config.notificationTimeoutSeconds;
             if (config.notificationTimeoutSeconds != m_savedValues.notificationTimeoutSeconds) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
@@ -1166,9 +1012,17 @@ namespace CrashGuard {
                 ImGui::PopStyleColor();
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Maximum time a script can run before being considered timed out. Prevents infinite script loops.");
+                ImGui::SetTooltip(
+                    "Detection threshold for long-running Papyrus script stacks (in ms).\n\n"
+                    "CrashGuard's ScriptMonitor tracks stack depth and call frequency via\n"
+                    "Papyrus log analysis - it does NOT hook the VM or kill scripts.\n"
+                    "When a script stack stays active longer than this value it is flagged\n"
+                    "in the log as a potential runaway. No forced termination occurs.\n\n"
+                    "Default 5000ms is appropriate for most heavily-scripted mod setups.\n"
+                    "Lower this if you want earlier warnings; raise it if you see false\n"
+                    "positives from legitimate long-running scripts (e.g. RaceMenu).");
             }
-            
+
             int tempMaxRecoveryAttempts = config.maxRecoveryAttempts;
             if (config.maxRecoveryAttempts != m_savedValues.maxRecoveryAttempts) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
@@ -1184,12 +1038,20 @@ namespace CrashGuard {
                 ImGui::PopStyleColor();
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Maximum number of recovery attempts for a single crash before giving up.");
+                ImGui::SetTooltip(
+                    "Maximum number of layer escalations for a SINGLE crash event.\n\n"
+                    "Different from Cascade Limit (which counts crashes-per-window):\n"
+                    "  - Cascade Limit: stop if N crashes arrive within 100ms\n"
+                    "  - Max Recovery Attempts: stop escalating layers for one crash\n\n"
+                    "The 6-layer VEH chain (zero reg -> skip write -> skip instr -> func\n"
+                    "return -> deep walk) tries layers in order until one succeeds.\n"
+                    "This setting caps how many layers are tried before giving up.\n"
+                    "Default 3 means at most 3 layers are attempted per crash.");
             }
-            
+
             ImGui::Unindent();
         }
-        
+
         // Logging
         if (ImGui::CollapsingHeader("Logging")) {
             ImGui::Indent();
@@ -1235,9 +1097,16 @@ namespace CrashGuard {
                 ImGui::PopStyleColor();
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Aggregate similar crash patterns in logs to reduce redundancy and improve readability.");
+                ImGui::SetTooltip(
+                    "Group identical crash-site events in the log file instead of writing\n"
+                    "a separate line for every occurrence.\n\n"
+                    "When enabled, repeated crashes at the same address are collapsed into\n"
+                    "a single entry prefixed with [AGGREGATED] and a hit count, e.g.:\n"
+                    "  [AGGREGATED x7] SkyrimSE.exe+0x14F400E zeroed RAX\n\n"
+                    "Disable if you need every individual event timestamped separately\n"
+                    "(e.g. for correlating crashes with specific in-game actions).");
             }
-            
+
             int tempMaxLogSize = config.maxLogSizeMB;
             if (config.maxLogSizeMB != m_savedValues.maxLogSizeMB) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
@@ -1412,37 +1281,11 @@ namespace CrashGuard {
     }
 
     bool ImGuiConfigMenu::HasUnsavedChanges() const {
-        const auto& current = Config::Get();
-        
-        // Compare all fields
-        return current.enabled != m_savedValues.enabled ||
-               current.logLevel != m_savedValues.logLevel ||
-               current.vehEnabled != m_savedValues.vehEnabled ||
-               current.cascadeLimit != m_savedValues.cascadeLimit ||
-               current.patchesEnabled != m_savedValues.patchesEnabled ||
-               current.enableMeshValidation != m_savedValues.enableMeshValidation ||
-               current.enableAnimationValidation != m_savedValues.enableAnimationValidation ||
-               current.enableScriptMonitoring != m_savedValues.enableScriptMonitoring ||
-               current.enableCellValidation != m_savedValues.enableCellValidation ||
-               current.enableNullChecks != m_savedValues.enableNullChecks ||
-               current.enableBoundsChecks != m_savedValues.enableBoundsChecks ||
-               current.enableFormIDChecks != m_savedValues.enableFormIDChecks ||
-               current.enableStateSnapshots != m_savedValues.enableStateSnapshots ||
-               current.maxSnapshotsPerSession != m_savedValues.maxSnapshotsPerSession ||
-               current.enableLearning != m_savedValues.enableLearning ||
-               current.patternDatabasePath != m_savedValues.patternDatabasePath ||
-               current.showNotifications != m_savedValues.showNotifications ||
-               current.autoRecoverSafe != m_savedValues.autoRecoverSafe ||
-               current.autoRecoverWarning != m_savedValues.autoRecoverWarning ||
-               current.notificationTimeoutSeconds != m_savedValues.notificationTimeoutSeconds ||
-               current.scriptTimeoutMs != m_savedValues.scriptTimeoutMs ||
-               current.maxRecoveryAttempts != m_savedValues.maxRecoveryAttempts ||
-               current.enableDetailedLogging != m_savedValues.enableDetailedLogging ||
-               current.logOnlyFailures != m_savedValues.logOnlyFailures ||
-               current.logSuccessfulRecoveries != m_savedValues.logSuccessfulRecoveries ||
-               current.aggregatePatterns != m_savedValues.aggregatePatterns ||
-               current.maxLogSizeMB != m_savedValues.maxLogSizeMB ||
-               current.maxLogFiles != m_savedValues.maxLogFiles;
+        // Compare a hash of every field in the current config against the hash
+        // we saved when the user last clicked "Save" (or when the menu first opened).
+        // This automatically covers ALL fields — including ones added in the future —
+        // without needing a separate comparison line for each one.
+        return Config::Get().ComputeHash() != m_savedHash;
     }
 
     void ImGuiConfigMenu::RenderRecentRecoveriesTab() {
@@ -2597,24 +2440,48 @@ namespace CrashGuard {
             case 1: add(LID::UR_WriteSkip,  "Write to nullptr - silently dropped, game never knew it failed.", true); break;
             case 2: add(LID::ExecAV_Return, "Call through null vtable - call cancelled, RAX set to 0, caller continued.", true); break;
             case 3:
-                add(LID::UR_ZeroedReg,  "TEST instruction sets a CPU flag only - no output register to zero.", false);
-                add(LID::UR_FuncReturn, "L5 skipped in test mode - SEH frame would corrupt RSP.", false);
-                add(LID::UR_DeepWalk,   "L6 skipped in test mode - same reason.", false);
-                add(LID::UR_FlagsSkip,  "RIP advanced past the TEST instruction. Game takes the false/not-found branch.", true);
+                if (r.tierUsed == TestTier::Demo) {
+                    // In Safe mode the kernel runs inside a __try/__except block.
+                    // The SEH prologue adjusts RSP, so L5/L6 would read a wrong
+                    // return address and jump to the wrong frame. Both are skipped;
+                    // CrashGuard falls through to instruction-skip instead.
+                    add(LID::UR_ZeroedReg,  "TEST instruction has no output register - no register to zero.", false);
+                    add(LID::UR_FuncReturn, "L5 skipped: Safe mode __try prologue adjusted RSP - L5 would return to wrong frame.", false);
+                    add(LID::UR_DeepWalk,   "L6 skipped: same reason - stack scan in Safe mode would find __try frame, not real call site.", false);
+                    add(LID::UR_FlagsSkip,  "RIP advanced past the TEST instruction. Game takes the false/not-found branch.", true);
+                } else {
+                    // In Real Conditions / Live mode the stub runs in VirtualAlloc'd
+                    // memory with no __try frame. RSP is clean - L5 reads the real
+                    // return address back into ExecStub and jumps there cleanly.
+                    add(LID::UR_ZeroedReg,  "TEST instruction has no output register - no register to zero.", false);
+                    add(LID::UR_FuncReturn, "L5: stack is clean (no __try frame). Return address is valid. Returned cleanly from the crashing function.", true);
+                }
                 break;
             case 4: add(LID::UR_ZeroedReg,  "Read vtable pointer from null object - zeroed so the read returned null safely.", true); break;
             case 5: add(LID::UR_WriteSkip,  "Write to 0xDEADBEEF (poison sentinel address) - dropped silently.", true); break;
             case 6: add(LID::UR_ZeroedReg,  "Read at offset +0x2A0 on nullptr (partially loaded struct) - answered with zero.", true); break;
             case 7: add(LID::UR_ZeroedReg,  "10 sequential null reads in a loop - each intercepted and answered with zero.", true); break;
             case 8:
-                add(LID::UR_ZeroedReg, "Crash 1 of 2: read at +0x4 on nullptr - answered with zero.", true);
-                add(LID::UR_ZeroedReg, "Crash 2 of 2: read at +0x14 on nullptr 15ms later - cascade limiter bypassed in test mode, caught.", true);
+                if (r.tierUsed == TestTier::Demo) {
+                    add(LID::UR_ZeroedReg, "Crash 1 of 2: read at +0x4 on nullptr - answered with zero.", true);
+                    add(LID::UR_ZeroedReg, "Crash 2 of 2: read at +0x14 on nullptr - cascade limiter bypassed in Safe mode, caught.", true);
+                } else {
+                    // Real Conditions / Live: stubs placed at distinct page offsets (0 and 64)
+                    // so each crash has a unique RIP. Cascade limiter is active and did not block.
+                    add(LID::UR_ZeroedReg, "Crash 1 of 2: null read at stub offset 0 - answered with zero.", true);
+                    add(LID::UR_ZeroedReg, "Crash 2 of 2: null write at stub offset 64 - distinct address, cascade limiter correctly allowed both.", true);
+                }
                 break;
             case 9:
-                add(LID::UR_ZeroedReg,  "TEST instruction only sets a CPU flag - no output register to zero.", false);
-                add(LID::UR_FuncReturn, "L5 skipped in test mode - SEH frame would corrupt RSP.", false);
-                add(LID::UR_DeepWalk,   "L6 skipped in test mode - same reason.", false);
-                add(LID::UR_FlagsSkip,  "RIP advanced past TEST BYTE PTR [r14+0x109],0x04 (mirrors SkyrimSE.exe+14F400E). Shadow system takes 'not visible' path. Crash pattern: null actor pointer in BSShadowFrustumLight during interior cell load.", true);
+                if (r.tierUsed == TestTier::Demo) {
+                    add(LID::UR_ZeroedReg,  "TEST instruction has no output register - no register to zero.", false);
+                    add(LID::UR_FuncReturn, "L5 skipped: Safe mode __try prologue adjusted RSP - L5 would return to wrong frame.", false);
+                    add(LID::UR_DeepWalk,   "L6 skipped: same reason - stack scan in Safe mode would find __try frame, not real call site.", false);
+                    add(LID::UR_FlagsSkip,  "RIP advanced past TEST BYTE PTR [r14+0x109],0x08 (mirrors SkyrimSE.exe+14F400E). Shadow system takes 'not visible' path. Crash pattern: null actor pointer in BSShadowFrustumLight during interior cell load.", true);
+                } else {
+                    add(LID::UR_ZeroedReg,  "TEST instruction has no output register - no register to zero.", false);
+                    add(LID::UR_FuncReturn, "L5: stack is clean (no __try frame). Return address is valid. Returned cleanly from the crashing function (mirrors real interior-cell-load recovery).", true);
+                }
                 break;
             default: break;
             }
@@ -2632,36 +2499,38 @@ namespace CrashGuard {
             ImGui::TextColored(ImVec4(0.55f, 0.55f, 0.55f, 1.f), "Test tier:");
             ImGui::SameLine();
 
-            // Demo
+            // Safe (formerly Demo) - bypassed internal mode
             ImGui::PushStyleColor(ImGuiCol_Text,
                 curTier == TestTier::Demo
                     ? ImVec4(0.30f, 1.00f, 0.30f, 1.f)
                     : ImVec4(0.60f, 0.60f, 0.60f, 1.f));
-            if (ImGui::RadioButton("Demo##tier", curTier == TestTier::Demo))
+            if (ImGui::RadioButton("Safe##tier", curTier == TestTier::Demo))
                 CrashTestSuite::SetTestTier(TestTier::Demo);
             ImGui::PopStyleColor();
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
-                    "Safe demo mode.\n"
-                    "Crashes run inside CrashGuard.dll with __try safety net and test-mode\n"
-                    "bypasses active.  Tests the mechanism — not real in-game conditions.");
+                    "Safe / bypass mode.\n"
+                    "Crashes run inside CrashGuard.dll with cascade/cooldown bypassed\n"
+                    "and a __try safety net. Verifies the mechanism works, but does not\n"
+                    "reflect real in-game conditions (L5/L6 skipped for flag-only instructions).");
 
             ImGui::SameLine();
 
-            // Real Conditions
+            // Demo (formerly Real Conditions) - real VEH behavior, with safety net
             ImGui::PushStyleColor(ImGuiCol_Text,
                 curTier == TestTier::RealConditions
                     ? ImVec4(1.00f, 0.80f, 0.25f, 1.f)
                     : ImVec4(0.60f, 0.60f, 0.60f, 1.f));
-            if (ImGui::RadioButton("Real Conditions##tier", curTier == TestTier::RealConditions))
+            if (ImGui::RadioButton("Demo##tier", curTier == TestTier::RealConditions))
                 CrashTestSuite::SetTestTier(TestTier::RealConditions);
             ImGui::PopStyleColor();
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
-                    "Honest test of what VEH actually does mid-game.\n"
-                    "Crash stubs run in allocated memory (RIP outside CrashGuard.dll),\n"
-                    "real cascade and cooldown rules apply, no test-mode bypasses.\n"
-                    "__try safety net retained — game will NOT crash if VEH fails.");
+                    "Demo mode - real conditions, with safety net.\n"
+                    "Crash kernels run in allocated memory outside CrashGuard.dll.\n"
+                    "Real cascade and cooldown rules apply, no bypasses.\n"
+                    "VEH behaves exactly as it does mid-game.\n"
+                    "__try safety net present - game will NOT crash if VEH fails.");
 
             ImGui::SameLine();
 
@@ -2678,7 +2547,7 @@ namespace CrashGuard {
                     "No safety net.\n"
                     "If VEH fails to recover the crash, the game crashes to desktop.\n"
                     "Save your game before running any test in this mode.\n"
-                    "Run All is disabled — run tests one at a time.");
+                    "Run All is disabled - run tests one at a time.");
 
             // Live warning inline
             if (curTier == TestTier::Live) {
@@ -2702,7 +2571,7 @@ namespace CrashGuard {
                 ImGui::Button("  Run All  ", ImVec2(0, 22));
                 ImGui::PopStyleColor(4);
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Run All is disabled in Live mode.\nRun tests individually — one at a time.");
+                    ImGui::SetTooltip("Run All is disabled in Live mode.\nRun tests individually - one at a time.");
             } else {
                 if (ImGui::Button("  Run All  ", ImVec2(0, 22))) {
                     for (int i = 0; i < CrashTestSuite::NUM_TESTS; ++i) {
@@ -2775,21 +2644,21 @@ namespace CrashGuard {
                     ImGui::TextColored(ImVec4(0.38f, 0.38f, 0.38f, 1.f), "%.1fms", r.elapsedMs);
 
                     if (i < CrashTestSuite::SYSTEM_TEST_START) {
-                        // D = Demo (green-ish), R = Real Conditions (amber), L = Live (red)
+                        // S = Safe/bypass (green-ish), D = Demo/real conditions (amber), L = Live (red)
                         ImVec4 tCol;
-                        char   tChar = 'D';
-                        if      (r.tierUsed == TestTier::RealConditions) { tCol = {1.f, 0.80f, 0.25f, 0.9f}; tChar = 'R'; }
+                        char   tChar = 'S';
+                        if      (r.tierUsed == TestTier::RealConditions) { tCol = {1.f, 0.80f, 0.25f, 0.9f}; tChar = 'D'; }
                         else if (r.tierUsed == TestTier::Live)            { tCol = {1.f, 0.32f, 0.32f, 0.9f}; tChar = 'L'; }
-                        else                                               { tCol = {0.38f, 0.70f, 0.38f, 0.8f}; tChar = 'D'; }
+                        else                                               { tCol = {0.38f, 0.70f, 0.38f, 0.8f}; tChar = 'S'; }
                         ImGui::SameLine(listW - 22.f);
                         ImGui::TextColored(tCol, "%c", tChar);
                         if (ImGui::IsItemHovered()) {
                             const char* tip =
                                 (r.tierUsed == TestTier::RealConditions)
-                                    ? "Result from Real Conditions tier\n(real cascade/cooldown, no test-mode bypasses)"
+                                    ? "Result from Demo tier\n(real cascade/cooldown, no bypasses, __try safety net)"
                                 : (r.tierUsed == TestTier::Live)
-                                    ? "Result from Live tier\n(no __try safety net)"
-                                    : "Result from Demo tier\n(test-mode bypasses active)";
+                                    ? "Result from Live tier\n(no __try safety net - CTD if VEH fails)"
+                                    : "Result from Safe tier\n(bypass mode: cascade/cooldown skipped, __try safety net)";
                             ImGui::SetTooltip("%s", tip);
                         }
                     }
@@ -2888,7 +2757,14 @@ namespace CrashGuard {
                 r.crashCountBefore, r.crashCountAfter);
         }
 
-        // Recovery chain
+        // Recovery chain — only shown for VEH crash tests.
+        // System health tests (indices >= SYSTEM_TEST_START) do not go through
+        // the VEH recovery chain; showing "Not recovered" for them is misleading.
+        if (s_selTest >= CrashTestSuite::SYSTEM_TEST_START) {
+            ImGui::EndChild();
+            return;
+        }
+
         CrashGuard::LayerTrace trace = r.layerTrace.empty()
             ? buildTrace(s_selTest, r) : r.layerTrace;
         if (trace.empty()) { ImGui::EndChild(); return; }

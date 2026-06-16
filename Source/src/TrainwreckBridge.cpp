@@ -1,4 +1,4 @@
-// Copyright (C) 2024-2025 Parker Chace
+﻿// Copyright (C) 2026 Parker Chace
 // SPDX-License-Identifier: MIT
 //
 // This file is part of Skyrim CrashGuard.
@@ -117,10 +117,12 @@ bool TrainwreckAPI::RegisterPlugin() {
 bool TrainwreckAPI::SetupCrashCallbacks() {
     // Set up crash callback if available (optional API)
     if (s_setCrashCallback) {
-        // Note: Callback setup would go here if Trainwreck supports it
-        // For now, we use the direct export approach
+        // Trainwreck exports a crash-callback setter, but its expected callback
+        // signature requires data that CrashGuard only has inside VEH recovery —
+        // at which point we can't safely call back into Trainwreck's allocator.
+        // We use the direct export (ProvideExtendedCrashInfo) instead.
         auto log = spdlog::default_logger();
-        if (log) log->debug("[TrainwreckBridge] Crash callbacks available but not implemented");
+        if (log) log->debug("[TrainwreckBridge] Trainwreck crash callback skipped (use direct export instead)");
     }
     
     return true;

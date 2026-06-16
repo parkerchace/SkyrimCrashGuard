@@ -3234,6 +3234,13 @@ static LONG CALLBACK OrchestratedRecovery(PEXCEPTION_POINTERS info) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
 
+    // ── Fast reject: respect the master enable and VEH toggle from the F11 menu ──
+    // Config::Get() returns a plain POD struct. Bool reads from an aligned address
+    // are atomic on x86-64 hardware, so no mutex is needed on this hot path.
+    if (!Config::Get().enabled || !Config::Get().vehEnabled) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+
     // ── Fast reject: only handle hardware faults ──
     DWORD code = info->ExceptionRecord->ExceptionCode;
     switch (code) {
@@ -3935,7 +3942,12 @@ static LONG CALLBACK Handler(PEXCEPTION_POINTERS info) {
     //
     // For regular AVs (read/write): keep strict limit (3).  L1-L6 recovery
     // is more speculative and repeated failures indicate real instability.
-    uint32_t cascadeLimit = isExecuteAV ? 200 : (highToleranceSite ? BAILOUT_CASCADE_MAX : 3);
+    // For execute-AVs the limit is always 200 (see long comment above).
+    // For high-tolerance known sites it uses the module-level bailout constant.
+    // For regular read/write AVs we use the value from SkyrimCrashGuard.toml
+    // (cascadeLimit, default 3). Raise it if you want the recovery chain to
+    // try more times before giving up; lower it to bail out faster.
+    uint32_t cascadeLimit = isExecuteAV ? 200 : (highToleranceSite ? BAILOUT_CASCADE_MAX : static_cast<uint32_t>(Config::Get().cascadeLimit));
     if (!t_testMode && hits > cascadeLimit) {
         if (log) {
             log->critical("[VEH] CASCADE: RIP {:#x} ({}+{:#x}) crashed {} times (limit {}) — "

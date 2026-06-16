@@ -390,7 +390,7 @@ bool LogInjector::HasExistingInjection(const std::filesystem::path& logFile) {
         
         std::string line;
         while (std::getline(file, line)) {
-            if (line.find("CRASHGUARD CRASH RECOVERY ACTIVE") != std::string::npos) {
+            if (line.find("NOTE: SkyrimCrashGuard") != std::string::npos) {
                 return true;
             }
         }

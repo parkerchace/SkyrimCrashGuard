@@ -38,23 +38,12 @@ namespace Config {
         bool        enableScriptMonitoring    = true;
         bool        enableCellValidation      = true;
 
-        // [SafetyChecks]
-        bool        enableNullChecks    = true;
-        bool        enableBoundsChecks  = true;
-        bool        enableFormIDChecks  = true;
-
-        // [StateManagement]
-        bool        enableStateSnapshots = true;
-        int         maxSnapshotsPerSession = 100;
-
         // [Learning]
         bool        enableLearning = true;
         std::string patternDatabasePath = "Data/SKSE/Plugins/CrashGuard/patterns.json";
 
         // [Notifications]
         bool        showNotifications = true;
-        bool        autoRecoverSafe = true;
-        bool        autoRecoverWarning = false;
         int         notificationTimeoutSeconds = 30;
 
         // [UserNotifications]
@@ -68,9 +57,6 @@ namespace Config {
         std::string timeoutDefaultAction = "Continue";
         bool        showTechnicalDetails = false;
         bool        allowCrashAnywayOption = true;
-        bool        batchSimilarCrashes = true;
-        bool        logAllRecoveries = true;
-        bool        logSilentRecoveries = false;
 
         // [Performance]
         int         scriptTimeoutMs = 5000;
@@ -84,12 +70,6 @@ namespace Config {
         int         maxLogSizeMB = 10;  // Rotate logs at this size
         int         maxLogFiles = 3;  // Keep this many log files
 
-        // Per-subsystem debug toggles (disabled by default to avoid log spam)
-        bool        enableInputDebugLogging = false;   // ImGui/input per-frame diagnostics
-        bool        enableVehDebugLogging = false;     // VEH/exception handling internals
-        bool        enablePatchDebugLogging = false;   // PatchEngine and patch application
-        bool        enablePapyrusDebugLogging = false; // Papyrus validation and hook logs
-        bool        enablePerfTracing = false;         // Lightweight performance tracing
         // [InputDiagnostics]
         bool        enableInputDiagnostics = false;  // Enable diagnostic logging for F11 menu input
 
@@ -129,18 +109,72 @@ namespace Config {
         float       overlayTextAlpha = 1.0f;
         float       overlayScale = 1.0f;
 
-        // [Hotkeys]
-        std::string menuToggleKey = "F11";
-
-        // [Benchmark]
-        // Allow built-in automated benchmark actions.
-        // NPC management actions (HideNearbyNPCs / RestoreNearbyNPCs) were removed
-        // in v2.3.6 — the ActorLOD subsystem they depended on was incomplete.
-        bool        allowBuiltinActions = true;
-
         // [MemoryLeakTracking] - REMOVED
         // Memory allocation hooks system has been completely removed.
         // See ALLOCATION_HOOK_ANALYSIS.md for why this approach was abandoned.
+
+        /// Hash every field in this struct into a single 64-bit number.
+        /// Used by the UI to answer "has anything changed since we last saved?"
+        /// without needing a separate comparison line for every field.
+        ///
+        /// How this works: FNV-1a is a simple non-cryptographic hash.
+        /// We start with a fixed "seed" number and repeatedly XOR each byte of each
+        /// field into it, then multiply by a large prime. At the end, even a single
+        /// changed bit anywhere produces a completely different result.
+        uint64_t ComputeHash() const {
+            constexpr uint64_t FNV_BASIS = 14695981039346656037ULL;
+            constexpr uint64_t FNV_PRIME = 1099511628211ULL;
+            uint64_t h = FNV_BASIS;
+
+            // Fold a POD value (int, bool, float, enum) byte-by-byte into h
+            auto mix = [&h](auto val) {
+                const auto* b = reinterpret_cast<const uint8_t*>(&val);
+                for (size_t i = 0; i < sizeof(val); ++i) {
+                    h ^= b[i];
+                    h *= FNV_PRIME;
+                }
+            };
+            // Fold a std::string character-by-character
+            auto mixStr = [&h](const std::string& s) {
+                for (unsigned char c : s) { h ^= c; h *= FNV_PRIME; }
+            };
+
+            mix(enabled);           mix(safeMode);          mix(logLevel);
+            mix(vehEnabled);        mix(cascadeLimit);
+            mix(enableModuleThrottling);    mix(moduleThrottleThreshold);
+            mix(moduleThrottleWindowMs);    mix(moduleSilentDurationMs);
+            mix(moduleRelogIntervalMs);     mix(patchesEnabled);
+            mix(enableMeshValidation);      mix(enableAnimationValidation);
+            mix(enableScriptMonitoring);    mix(enableCellValidation);
+            mix(enableLearning);            mixStr(patternDatabasePath);
+            mix(showNotifications);         mix(notificationTimeoutSeconds);
+            mix(notifyOnSafe);              mix(notifyOnWarning);
+            mix(notifyOnCritical);          mix(notifyOnFatal);
+            mix(showToastForAutoRecovery);  mix(toastDurationSeconds);
+            mix(dialogTimeoutSeconds);      mixStr(timeoutDefaultAction);
+            mix(showTechnicalDetails);      mix(allowCrashAnywayOption);
+            mix(scriptTimeoutMs);           mix(maxRecoveryAttempts);
+            mix(enableDetailedLogging);     mix(logOnlyFailures);
+            mix(logSuccessfulRecoveries);   mix(aggregatePatterns);
+            mix(maxLogSizeMB);              mix(maxLogFiles);
+            mix(enableInputDiagnostics);
+            mix(papyrusValidationEnabled);  mix(papyrusValidationLogFailures);
+            mix(papyrusValidationStrictMode);
+            mix(enableInputConflictPrevention); mix(blockCameraZoomInMenus);
+            mix(blockFavoritesInMenus);     mix(autoDetectModdedMenus);
+            mix(enableInputTracking);
+            for (const auto& s : customScrollableMenus) mixStr(s);
+            mix(disableImGuiMenu);          mix(enableImGuiDebugLogs);
+            mix(allowImGuiInVR);
+            mix(overlayEnabled);            mix(overlayShowFPS);
+            mix(overlayShowFrameTime);      mix(overlayShowMemory);
+            mix(overlayShowCrashStats);     mix(overlayShowRecoveryStats);
+            mix(overlayShowPatternStats);   mix(overlayPosition);
+            mix(overlayBackgroundAlpha);    mix(overlayTextAlpha);
+            mix(overlayScale);
+
+            return h;
+        }
     };
 
     /// Load settings from TOML. Call during plugin init.

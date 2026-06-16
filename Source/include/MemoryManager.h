@@ -8,58 +8,58 @@
 
 #include <cstdint>
 #include <chrono>
-#include <vector>
-#include <unordered_set>
-#include <functional>
 #include <mutex>
+
+// MemoryManager monitors system and process memory usage.
+// It polls Windows memory counters at regular intervals and warns the player
+// when RAM is running low so they can save before a crash happens.
+//
+// What this does:
+//   - Reads system RAM and process working set from Windows every few seconds
+//   - Shows an in-game toast when memory reaches warning or critical levels
+//   - Logs suggestions (save, reduce settings, close background apps)
+//
+// What this does NOT do:
+//   - It does not free game memory — Skyrim's engine manages its own allocations
+//   - It does not hook the allocator — that causes crashes (see ALLOCATION_HOOK_ANALYSIS.md)
 
 namespace CrashGuard {
 
-/**
- * @brief Manages memory resources and handles allocation failures
- * 
- * Implements memory resource tracking, allocation failure handling,
- * and memory usage monitoring with warnings.
- * 
- * Note: This system tracks resources but does not directly free them.
- * Actual memory management is handled by the game engine.
- */
 class MemoryManager {
 public:
     static MemoryManager& GetInstance();
 
-    // Initialize memory monitoring
+    // Call once during plugin startup to start memory monitoring
     bool Initialize();
 
-    // Shutdown and cleanup
+    // Call during plugin shutdown to clean up
     void Shutdown();
 
-    // Dynamic memory freeing
-    void FreeDistantCellResources();
-    void FreeUnusedTextures();
-    void FreeCachedData();
-    size_t FreeMemoryByPriority(size_t targetBytes);
-
-    // Allocation failure handling
-    void* HandleAllocationFailure(size_t requestedSize);
-    bool AttemptResourceFreeing(size_t neededBytes);
+    // Registration stub — allocation hooking is disabled.
+    // See ALLOCATION_HOOK_ANALYSIS.md for why this was abandoned.
     void RegisterAllocationHook();
 
-    // Memory warnings
+    // Call periodically from the main loop to check memory and warn if needed
     void MonitorMemoryUsage();
+
+    // Returns true if available RAM is critically low right now
     bool IsMemoryCriticallyLow();
+
+    // Show an in-game toast and log a warning about low memory
     void WarnUserAboutMemory();
+
+    // Log suggestions for how to reduce memory usage
     void SuggestMemoryReduction();
 
-    // Memory statistics
+    // Snapshot of the current memory readings
     struct MemoryStats {
-        size_t totalPhysical;
-        size_t availablePhysical;
-        size_t totalVirtual;
-        size_t availableVirtual;
-        size_t processWorkingSet;
-        size_t processPrivateBytes;
-        float usagePercent;
+        size_t totalPhysical     = 0;
+        size_t availablePhysical = 0;
+        size_t totalVirtual      = 0;
+        size_t availableVirtual  = 0;
+        size_t processWorkingSet = 0;
+        size_t processPrivateBytes = 0;
+        float  usagePercent      = 0.0f;
         std::chrono::steady_clock::time_point lastUpdate;
     };
 
@@ -72,64 +72,23 @@ private:
     MemoryManager(const MemoryManager&) = delete;
     MemoryManager& operator=(const MemoryManager&) = delete;
 
-    // Resource tracking
-    struct ResourceInfo {
-        void* address;
-        size_t size;
-        std::chrono::steady_clock::time_point lastAccessed;
-        uint32_t accessCount;
-        float priority; // Lower = more likely to free
-    };
-
-    // Cell resource tracking
-    struct CellResourceInfo {
-        uint32_t cellFormID;
-        float distanceFromPlayer;
-        std::vector<void*> resources;
-        size_t totalSize;
-    };
-
-    // Texture tracking
-    struct TextureInfo {
-        void* texturePtr;
-        std::string path;
-        size_t size;
-        std::chrono::steady_clock::time_point lastUsed;
-        uint32_t referenceCount;
-    };
-
-    // Internal methods
-    void CollectDistantCells(std::vector<CellResourceInfo>& outCells);
-    void CollectUnusedTextures(std::vector<TextureInfo>& outTextures);
-    void CollectCachedData(std::vector<ResourceInfo>& outResources);
-    float CalculateResourcePriority(const ResourceInfo& resource);
-
-    // Memory monitoring
     void CheckMemoryThresholds();
     bool ShouldWarnUser();
     void RecordMemoryWarning();
 
-    // Configuration thresholds
-    static constexpr size_t CRITICAL_MEMORY_THRESHOLD = 512 * 1024 * 1024; // 512 MB
-    static constexpr size_t WARNING_MEMORY_THRESHOLD = 1024 * 1024 * 1024; // 1 GB
-    static constexpr float CRITICAL_USAGE_PERCENT = 90.0f;
-    static constexpr float WARNING_USAGE_PERCENT = 80.0f;
-    static constexpr auto WARNING_COOLDOWN = std::chrono::minutes(5);
-    static constexpr float DISTANT_CELL_THRESHOLD = 8192.0f; // 2 cells away
+    // Warning thresholds
+    static constexpr size_t CRITICAL_MEMORY_THRESHOLD = 512 * 1024 * 1024;   // 512 MB free
+    static constexpr size_t WARNING_MEMORY_THRESHOLD  = 1024 * 1024 * 1024;  // 1 GB free
+    static constexpr float  CRITICAL_USAGE_PERCENT    = 90.0f;
+    static constexpr float  WARNING_USAGE_PERCENT     = 80.0f;
+    static constexpr auto   WARNING_COOLDOWN          = std::chrono::minutes(5);
 
-    // State
     MemoryStats m_currentStats{};
-    std::mutex m_statsMutex;
+    std::mutex  m_statsMutex;
     std::chrono::steady_clock::time_point m_lastWarningTime;
-    uint32_t m_warningCount = 0;
-    bool m_initialized = false;
-    bool m_criticalMemoryMode = false;
-
-    // Resource tracking
-    std::vector<CellResourceInfo> m_trackedCells;
-    std::vector<TextureInfo> m_trackedTextures;
-    std::vector<ResourceInfo> m_cachedResources;
-    std::mutex m_resourceMutex;
+    uint32_t    m_warningCount      = 0;
+    bool        m_initialized       = false;
+    bool        m_criticalMemoryMode = false;
 };
 
 } // namespace CrashGuard

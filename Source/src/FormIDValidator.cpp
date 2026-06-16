@@ -14,11 +14,11 @@ namespace FormIDValidation {
     std::shared_mutex FormIDValidator::s_cacheMutex;
     std::unordered_set<RE::FormID> FormIDValidator::s_invalidFormIDs;
     std::shared_mutex FormIDValidator::s_invalidMutex;
-    size_t FormIDValidator::s_totalLookups = 0;
-    size_t FormIDValidator::s_validLookups = 0;
-    size_t FormIDValidator::s_invalidLookups = 0;
-    size_t FormIDValidator::s_cachedLookups = 0;
-    size_t FormIDValidator::s_preventionCount = 0;
+    std::atomic<size_t> FormIDValidator::s_totalLookups{0};
+    std::atomic<size_t> FormIDValidator::s_validLookups{0};
+    std::atomic<size_t> FormIDValidator::s_invalidLookups{0};
+    std::atomic<size_t> FormIDValidator::s_cachedLookups{0};
+    std::atomic<size_t> FormIDValidator::s_preventionCount{0};
     bool FormIDValidator::s_initialized = false;
 
     // ========================================================================
@@ -416,11 +416,11 @@ namespace FormIDValidation {
 
     ValidationStats FormIDValidator::GetStats() {
         ValidationStats stats;
-        stats.totalLookups = s_totalLookups;
-        stats.validLookups = s_validLookups;
-        stats.invalidLookups = s_invalidLookups;
-        stats.cachedLookups = s_cachedLookups;
-        stats.preventedCrashes = s_preventionCount;
+        stats.totalLookups      = s_totalLookups.load(std::memory_order_relaxed);
+        stats.validLookups      = s_validLookups.load(std::memory_order_relaxed);
+        stats.invalidLookups    = s_invalidLookups.load(std::memory_order_relaxed);
+        stats.cachedLookups     = s_cachedLookups.load(std::memory_order_relaxed);
+        stats.preventedCrashes  = s_preventionCount.load(std::memory_order_relaxed);
         return stats;
     }
 

@@ -62,15 +62,6 @@ namespace Config {
             s_settings.enableScriptMonitoring = GetValue(config, "ProactiveValidation", "enableScriptMonitoring", true);
             s_settings.enableCellValidation = GetValue(config, "ProactiveValidation", "enableCellValidation", true);
 
-            // [SafetyChecks]
-            s_settings.enableNullChecks = GetValue(config, "SafetyChecks", "enableNullChecks", true);
-            s_settings.enableBoundsChecks = GetValue(config, "SafetyChecks", "enableBoundsChecks", true);
-            s_settings.enableFormIDChecks = GetValue(config, "SafetyChecks", "enableFormIDChecks", true);
-
-            // [StateManagement]
-            s_settings.enableStateSnapshots = GetValue(config, "StateManagement", "enableStateSnapshots", true);
-            s_settings.maxSnapshotsPerSession = GetValue(config, "StateManagement", "maxSnapshotsPerSession", 100);
-
             // [Learning]
             s_settings.enableLearning = GetValue(config, "Learning", "enableLearning", true);
             s_settings.patternDatabasePath = GetValue(config, "Learning", "patternDatabasePath", 
@@ -78,8 +69,6 @@ namespace Config {
 
             // [Notifications]
             s_settings.showNotifications = GetValue(config, "Notifications", "showNotifications", true);
-            s_settings.autoRecoverSafe = GetValue(config, "Notifications", "autoRecoverSafe", true);
-            s_settings.autoRecoverWarning = GetValue(config, "Notifications", "autoRecoverWarning", false);
             s_settings.notificationTimeoutSeconds = GetValue(config, "Notifications", "notificationTimeoutSeconds", 30);
 
             // [UserNotifications]
@@ -93,9 +82,6 @@ namespace Config {
             s_settings.timeoutDefaultAction = GetValue(config, "UserNotifications", "TimeoutDefaultAction", std::string("Continue"));
             s_settings.showTechnicalDetails = GetValue(config, "UserNotifications", "ShowTechnicalDetails", false);
             s_settings.allowCrashAnywayOption = GetValue(config, "UserNotifications", "AllowCrashAnywayOption", true);
-            s_settings.batchSimilarCrashes = GetValue(config, "UserNotifications", "BatchSimilarCrashes", true);
-            s_settings.logAllRecoveries = GetValue(config, "UserNotifications", "LogAllRecoveries", true);
-            s_settings.logSilentRecoveries = GetValue(config, "UserNotifications", "LogSilentRecoveries", false);
 
             // [Performance]
             s_settings.scriptTimeoutMs = GetValue(config, "Performance", "scriptTimeoutMs", 5000);
@@ -108,13 +94,6 @@ namespace Config {
             s_settings.aggregatePatterns = GetValue(config, "Logging", "aggregatePatterns", true);
             s_settings.maxLogSizeMB = GetValue(config, "Logging", "maxLogSizeMB", 10);
             s_settings.maxLogFiles = GetValue(config, "Logging", "maxLogFiles", 3);
-
-            // Per-subsystem debug toggles
-            s_settings.enableInputDebugLogging = GetValue(config, "Logging", "enableInputDebugLogging", false);
-            s_settings.enableVehDebugLogging = GetValue(config, "Logging", "enableVehDebugLogging", false);
-            s_settings.enablePatchDebugLogging = GetValue(config, "Logging", "enablePatchDebugLogging", false);
-            s_settings.enablePapyrusDebugLogging = GetValue(config, "Logging", "enablePapyrusDebugLogging", false);
-            s_settings.enablePerfTracing = GetValue(config, "Logging", "enablePerfTracing", false);
 
             // [InputDiagnostics]
             s_settings.enableInputDiagnostics = GetValue(config, "InputDiagnostics", "enableInputDiagnostics", false);
@@ -175,12 +154,6 @@ namespace Config {
             
             // Note: [ResourceLimiter], [NPCManagement], and [ActorLOD] sections removed in v2.3.6
             // (features were disabled/incomplete and never functional — see CHANGELOG.md)
-
-            // [Hotkeys]
-            s_settings.menuToggleKey = GetValue(config, "Hotkeys", "menuToggleKey", std::string("F11"));
-
-            // [Benchmark]
-            s_settings.allowBuiltinActions = GetValue(config, "Benchmark", "allowBuiltinActions", true);
 
             // [MemoryLeakTracking] - REMOVED
             // Memory allocation hooks system has been completely removed.
@@ -247,23 +220,12 @@ namespace Config {
             ofs << "enableScriptMonitoring = " << (s_settings.enableScriptMonitoring ? "true" : "false") << "\n";
             ofs << "enableCellValidation = " << (s_settings.enableCellValidation ? "true" : "false") << "\n\n";
 
-            ofs << "[SafetyChecks]\n";
-            ofs << "enableNullChecks = " << (s_settings.enableNullChecks ? "true" : "false") << "\n";
-            ofs << "enableBoundsChecks = " << (s_settings.enableBoundsChecks ? "true" : "false") << "\n";
-            ofs << "enableFormIDChecks = " << (s_settings.enableFormIDChecks ? "true" : "false") << "\n\n";
-
-            ofs << "[StateManagement]\n";
-            ofs << "enableStateSnapshots = " << (s_settings.enableStateSnapshots ? "true" : "false") << "\n";
-            ofs << "maxSnapshotsPerSession = " << s_settings.maxSnapshotsPerSession << "\n\n";
-
             ofs << "[Learning]\n";
             ofs << "enableLearning = " << (s_settings.enableLearning ? "true" : "false") << "\n";
             ofs << "patternDatabasePath = \"" << s_settings.patternDatabasePath << "\"\n\n";
 
             ofs << "[Notifications]\n";
             ofs << "showNotifications = " << (s_settings.showNotifications ? "true" : "false") << "\n";
-            ofs << "autoRecoverSafe = " << (s_settings.autoRecoverSafe ? "true" : "false") << "\n";
-            ofs << "autoRecoverWarning = " << (s_settings.autoRecoverWarning ? "true" : "false") << "\n";
             ofs << "notificationTimeoutSeconds = " << s_settings.notificationTimeoutSeconds << "\n\n";
 
             ofs << "[UserNotifications]\n";
@@ -276,10 +238,7 @@ namespace Config {
             ofs << "DialogTimeoutSeconds = " << s_settings.dialogTimeoutSeconds << "\n";
             ofs << "TimeoutDefaultAction = \"" << s_settings.timeoutDefaultAction << "\"\n";
             ofs << "ShowTechnicalDetails = " << (s_settings.showTechnicalDetails ? "true" : "false") << "\n";
-            ofs << "AllowCrashAnywayOption = " << (s_settings.allowCrashAnywayOption ? "true" : "false") << "\n";
-            ofs << "BatchSimilarCrashes = " << (s_settings.batchSimilarCrashes ? "true" : "false") << "\n";
-            ofs << "LogAllRecoveries = " << (s_settings.logAllRecoveries ? "true" : "false") << "\n";
-            ofs << "LogSilentRecoveries = " << (s_settings.logSilentRecoveries ? "true" : "false") << "\n\n";
+            ofs << "AllowCrashAnywayOption = " << (s_settings.allowCrashAnywayOption ? "true" : "false") << "\n\n";
 
             ofs << "[Performance]\n";
             ofs << "scriptTimeoutMs = " << s_settings.scriptTimeoutMs << "\n";
@@ -292,13 +251,6 @@ namespace Config {
             ofs << "aggregatePatterns = " << (s_settings.aggregatePatterns ? "true" : "false") << "\n";
             ofs << "maxLogSizeMB = " << s_settings.maxLogSizeMB << "  # Rotate logs at this size\n";
             ofs << "maxLogFiles = " << s_settings.maxLogFiles << "  # Keep this many log files\n\n";
-
-            // Per-subsystem debug toggles
-            ofs << "enableInputDebugLogging = " << (s_settings.enableInputDebugLogging ? "true" : "false") << "\n";
-            ofs << "enableVehDebugLogging = " << (s_settings.enableVehDebugLogging ? "true" : "false") << "\n";
-            ofs << "enablePatchDebugLogging = " << (s_settings.enablePatchDebugLogging ? "true" : "false") << "\n";
-            ofs << "enablePapyrusDebugLogging = " << (s_settings.enablePapyrusDebugLogging ? "true" : "false") << "\n";
-            ofs << "enablePerfTracing = " << (s_settings.enablePerfTracing ? "true" : "false") << "\n\n";
 
             ofs << "[InputDiagnostics]\n";
             ofs << "enableInputDiagnostics = " << (s_settings.enableInputDiagnostics ? "true" : "false") << "  # Enable diagnostic logging for F11 menu input\n\n";
@@ -321,11 +273,18 @@ namespace Config {
             ofs << "autoDetectModdedMenus = " << (s_settings.autoDetectModdedMenus ? "true" : "false") << "\n";
             ofs << "enableInputTracking = " << (s_settings.enableInputTracking ? "true" : "false") << "\n";
             
-            // Write custom scrollable menus array
+            // Write custom scrollable menus array.
+            // Strip any characters that would break the TOML string literal:
+            // backslash and double-quote are the two that TOML parsers will choke on.
             ofs << "customScrollableMenus = [";
             for (size_t i = 0; i < s_settings.customScrollableMenus.size(); ++i) {
                 if (i > 0) ofs << ", ";
-                ofs << "\"" << s_settings.customScrollableMenus[i] << "\"";
+                std::string safe;
+                safe.reserve(s_settings.customScrollableMenus[i].size());
+                for (char c : s_settings.customScrollableMenus[i]) {
+                    if (c != '"' && c != '\\') safe += c;
+                }
+                ofs << "\"" << safe << "\"";
             }
             ofs << "]\n\n";
 
@@ -346,15 +305,10 @@ namespace Config {
             ofs << "backgroundAlpha = " << s_settings.overlayBackgroundAlpha << "\n";
             ofs << "textAlpha = " << s_settings.overlayTextAlpha << "\n";
             ofs << "scale = " << s_settings.overlayScale << "\n\n";
-            
-            // Note: [ResourceLimiter], [NPCManagement], and [ActorLOD] sections removed in v2.3.6
-            // (features were disabled/incomplete and never functional)
 
-            ofs << "[Hotkeys]\n";
-            ofs << "menuToggleKey = \"" << s_settings.menuToggleKey << "\"  # Hotkey to toggle F11 menu\n\n";
-
-            ofs << "[Benchmark]\n";
-            ofs << "allowBuiltinActions = " << (s_settings.allowBuiltinActions ? "true" : "false") << "  # Allow built-in automated actions (spawn/hide/restore)\n\n";
+            // Note: [ResourceLimiter], [NPCManagement], [ActorLOD], [SafetyChecks],
+            // [StateManagement], [Hotkeys], and [Benchmark] sections removed —
+            // the features they configured either never worked or are now handled automatically.
 
             ofs.close();
 

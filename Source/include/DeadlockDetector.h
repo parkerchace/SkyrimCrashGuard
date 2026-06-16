@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <mutex>
 #include <shared_mutex>
@@ -78,11 +79,8 @@ namespace ThreadSafety {
         /// Find circular wait conditions
         static bool FindCircularWait(std::vector<LockAcquisition>& chain);
 
-        /// Log deadlock occurrence
+        /// Log deadlock occurrence to the crash log
         static void LogDeadlock(const DeadlockInfo& deadlock);
-
-        /// Attempt to break deadlock by releasing oldest lock
-        static bool AttemptBreakDeadlock(const DeadlockInfo& deadlock);
 
         // State tracking
         static bool s_initialized;
@@ -91,7 +89,11 @@ namespace ThreadSafety {
         static std::unordered_map<std::thread::id, std::vector<LockAcquisition>> s_threadLocks;
         static std::mutex s_detectorMutex;
         static size_t s_deadlockCount;
-        static size_t s_brokenDeadlockCount;
+        static size_t s_brokenDeadlockCount;  // Always 0; kept for API compatibility
+
+        // Watchdog thread
+        static std::thread s_watchdogThread;
+        static std::atomic<bool> s_watchdogRunning;
     };
 
     /// RAII wrapper for automatic deadlock detection

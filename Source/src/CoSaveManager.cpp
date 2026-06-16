@@ -132,23 +132,12 @@ bool CoSaveManager::CoordinateSave() {
 }
 
 void CoSaveManager::WaitForSlackCompletion() {
-    // In a real implementation, this would use inter-process communication
-    // or shared memory to coordinate with S.L.A.C.K.
-    // For now, we implement a simple timeout-based wait
-    
-    auto startTime = std::chrono::steady_clock::now();
-    auto timeout = std::chrono::milliseconds(COORDINATION_TIMEOUT_MS);
-    
-    while (std::chrono::steady_clock::now() - startTime < timeout) {
-        // Check if S.L.A.C.K. has signaled ready
-        // This would check a shared flag or event
-        
-        // For now, just wait a short time
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        
-        // In a real implementation, break when S.L.A.C.K. signals ready
-        break;
-    }
+    // S.L.A.C.K. (po3_SaveLoadAccelerator) coordinates cosave write timing at the
+    // SKSE serialization level via its own internal mechanism; it does not expose
+    // a named-event or shared-memory API for third-party plugins to wait on.
+    // Our responsibility is to validate the cosave AFTER SKSE has written it,
+    // not to gate the write itself. No blocking wait is needed here.
+    spdlog::trace("[CoSaveManager] S.L.A.C.K. present — deferring to its write schedule");
 }
 
 void CoSaveManager::SignalSlackReady() {
@@ -272,49 +261,76 @@ bool CoSaveManager::ValidateCoSaveNotLocked(const std::string& savePath) {
 
 bool CoSaveManager::RetryCoSaveWrite(uint32_t maxRetries) {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     if (lastSavePath_.empty()) {
-        spdlog::error("No save path available for retry");
+        spdlog::error("[CoSaveManager] No save path available for retry");
         return false;
     }
-    
-    spdlog::info("Retrying cosave write (max {} attempts)", maxRetries);
-    
+
+    spdlog::info("[CoSaveManager] Retrying CrashGuard sidecar write (max {} attempts)", maxRetries);
+
     for (uint32_t attempt = 1; attempt <= maxRetries; ++attempt) {
-        spdlog::debug("CoSave write attempt {}/{}", attempt, maxRetries);
-        
-        // Wait a short time before retry
+        spdlog::debug("[CoSaveManager] Sidecar write attempt {}/{}", attempt, maxRetries);
+
         std::this_thread::sleep_for(std::chrono::milliseconds(100 * attempt));
-        
-        // Attempt to write
+
         if (PerformCoSaveWrite(lastSavePath_)) {
-            // Validate the write
-            if (ValidateCoSaveWrite(lastSavePath_)) {
-                spdlog::info("CoSave write succeeded on attempt {}", attempt);
+            // Verify the sidecar file was actually written and is readable
+            const std::string sidecarPath = lastSavePath_ + ".crashguard.json";
+            if (std::filesystem::exists(sidecarPath) &&
+                std::filesystem::file_size(sidecarPath) > 0) {
+                spdlog::info("[CoSaveManager] Sidecar write succeeded on attempt {}", attempt);
                 writeAttempts_ = attempt;
                 lastWriteTime_ = std::chrono::steady_clock::now();
                 return true;
             }
         }
-        
-        spdlog::warn("CoSave write attempt {} failed", attempt);
+
+        spdlog::warn("[CoSaveManager] Sidecar write attempt {} failed", attempt);
     }
-    
-    spdlog::error("CoSave write failed after {} attempts", maxRetries);
+
+    spdlog::error("[CoSaveManager] Sidecar write failed after {} attempts", maxRetries);
     return false;
 }
 
 bool CoSaveManager::PerformCoSaveWrite(const std::string& savePath) {
-    // This is a placeholder for the actual cosave write operation
-    // In a real implementation, this would be called by SKSE's serialization system
-    // and would write the plugin's data to the cosave file
-    
-    spdlog::trace("Performing cosave write to: {}", savePath);
-    
-    // The actual write would be handled by SKSE's serialization callbacks
-    // This method just coordinates the write operation
-    
-    return true;
+    // The SKSE cosave (.skse file) is written by SKSE automatically during the
+    // OnSave event and cannot be triggered on demand from plugin code.
+    //
+    // What we CAN write is a CrashGuard sidecar file alongside the save that
+    // records our plugin's recovery state. This sidecar is used by RetryCoSaveWrite
+    // to confirm that our data was persisted. It is also useful for diagnosing
+    // crash patterns across sessions.
+    //
+    // Sidecar path: savePath + ".crashguard.json"
+
+    const std::string sidecarPath = savePath + ".crashguard.json";
+
+    try {
+        std::ofstream out(sidecarPath);
+        if (!out.is_open()) {
+            spdlog::error("[CoSaveManager] Cannot open sidecar for writing: {}", sidecarPath);
+            return false;
+        }
+
+        const auto nowSec = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+        out << "{\n"
+            << "  \"writeTimestamp\": " << nowSec << ",\n"
+            << "  \"slackInstalled\": " << (isSlackInstalled_ ? "true" : "false") << ",\n"
+            << "  \"recoveryInProgress\": " << (recoveryInProgress_ ? "true" : "false") << ",\n"
+            << "  \"writeAttempt\": " << writeAttempts_ << "\n"
+            << "}\n";
+
+        out.close();
+        spdlog::debug("[CoSaveManager] CrashGuard sidecar written: {}", sidecarPath);
+        return true;
+
+    } catch (const std::exception& e) {
+        spdlog::error("[CoSaveManager] Exception writing sidecar {}: {}", sidecarPath, e.what());
+        return false;
+    }
 }
 
 bool CoSaveManager::DetectCoSaveCorruption(const std::string& savePath) {
@@ -377,13 +393,27 @@ bool CoSaveManager::DetectCoSaveCorruption(const std::string& savePath) {
 
 bool CoSaveManager::PreventCorruptedSave() {
     std::lock_guard<std::mutex> lock(mutex_);
-    
-    // Check if we should prevent saving due to corruption
-    // This would integrate with StateManager to check corruption level
-    
-    // For now, just log and return false (don't prevent)
-    spdlog::trace("Checking if save should be prevented due to corruption");
-    
+
+    // Block save if recovery is actively in progress (state is mid-mutation)
+    if (recoveryInProgress_) {
+        spdlog::warn("[CoSaveManager] PreventCorruptedSave: recovery in progress — save blocked");
+        return true;
+    }
+
+    // Block save if StateManager reports high corruption
+    auto& sm = StateManager::GetInstance();
+    auto level = sm.GetCorruptionLevel();
+
+    if (level == CorruptionLevel::High) {
+        spdlog::error("[CoSaveManager] PreventCorruptedSave: High corruption level — save blocked "
+                      "to avoid propagating corrupt state");
+        return true;
+    }
+
+    if (level == CorruptionLevel::Medium) {
+        spdlog::warn("[CoSaveManager] PreventCorruptedSave: Medium corruption — save allowed with warning");
+    }
+
     return false;
 }
 
@@ -477,15 +507,10 @@ bool CoSaveManager::CoordinateWithPlugins() {
         SignalSlackReady();
     }
     
-    // In a real implementation, this would also coordinate with other SKSE plugins
-    // that write cosave data. This could be done through:
-    // 1. Shared memory regions
-    // 2. Named events/mutexes
-    // 3. Message passing
-    // 4. SKSE messaging interface
-    
-    // For now, we implement a basic coordination mechanism
-    // that ensures we don't write during recovery
+    // Cross-plugin coordination for SKSE cosave timing would require shared memory,
+    // named Win32 events, or SKSE's messaging interface. None of those mechanisms
+    // are exposed by other plugins (including S.L.A.C.K.) in a public API.
+    // We enforce the one invariant we can control: no writes during active recovery.
     if (recoveryInProgress_) {
         spdlog::warn("Cannot coordinate with plugins during recovery");
         return false;

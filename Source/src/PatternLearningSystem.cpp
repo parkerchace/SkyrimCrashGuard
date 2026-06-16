@@ -7,7 +7,9 @@
 #include "PatternLearningSystem.h"
 #include "PerformanceMetrics.h"
 #include "BatchOperations.h"
+#include "Config.h"
 #include <nlohmann/json.hpp>
+#include <spdlog/spdlog.h>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -101,6 +103,14 @@ namespace PatternLearning {
         // Update pattern metadata
         pattern.totalOccurrences++;
         pattern.lastSeen = context.timestamp;
+
+        // Emit aggregated log entry when this crash site has been seen before
+        if (Config::Get().aggregatePatterns && pattern.totalOccurrences > 1) {
+            spdlog::info("[AGGREGATED x{}] crash signature {} ({})",
+                pattern.totalOccurrences,
+                signature,
+                DynamicFix::RecoveryStrategyToString(strategy));
+        }
 
         // Find or create strategy record
         auto strategyIt = std::find_if(pattern.strategies.begin(), pattern.strategies.end(),
