@@ -1,8 +1,20 @@
-﻿// Copyright (C) 2026 Parker Chace
-// SPDX-License-Identifier: MIT
+﻿// Copyright (C) 2024-2026 Parker Chace
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
-// This file is part of Skyrim CrashGuard.
-// Licensed under the MIT License. See LICENSE file in the project root for details.
+// This file is part of Skyrim Crash Guard.
+//
+// Skyrim Crash Guard is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
+//
+// Skyrim Crash Guard is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+// details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
 
@@ -95,6 +107,16 @@ namespace VEH {
         /// test suite — call Disable when the test kernel returns.
         static void EnableThreadTestMode();
         static void DisableThreadTestMode();
+
+        /// Marks the calling thread as running CrashGuard's own test suite, so
+        /// recoveries recorded while the scope is open are labelled as self-tests
+        /// instead of being reported as game crashes. This is labelling only — it
+        /// does not relax any recovery rule, unlike EnableThreadTestMode. The
+        /// stub-page test tiers need it because their faults happen outside
+        /// CrashGuard's module and so are indistinguishable from a real crash.
+        /// Nestable; Begin and End must be paired.
+        static void BeginSelfTestScope();
+        static void EndSelfTestScope();
 
         /// Returns the LayerTrace captured during the most recent test-mode recovery
         /// on this thread.  Valid only after a test kernel has run and been joined.

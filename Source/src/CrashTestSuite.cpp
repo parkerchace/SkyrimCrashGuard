@@ -1,8 +1,20 @@
-﻿// Copyright (C) 2026 Parker Chace
-// SPDX-License-Identifier: MIT
+﻿// Copyright (C) 2024-2026 Parker Chace
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
-// This file is part of Skyrim CrashGuard.
-// Licensed under the MIT License. See LICENSE file in the project root for details.
+// This file is part of Skyrim Crash Guard.
+//
+// Skyrim Crash Guard is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
+//
+// Skyrim Crash Guard is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+// details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
 
 // CrashTestSuite.cpp
 // ═══════════════════════════════════════════════════════════════════════
@@ -100,6 +112,13 @@ static KernelResult ExecStub(const uint8_t* bytes, size_t len, bool withSafety) 
     using Fn = void(*)();
     Fn fn = reinterpret_cast<Fn>(page);
 
+    // The fault happens in an allocated page that belongs to no module, so without
+    // this marker the recovery it produces is indistinguishable from a real crash in
+    // the F11 history (it showed up there as "unknown"). The scope only labels the
+    // recovery; the real IsSelfAddr / cascade / cooldown rules still apply, which is
+    // the whole point of these tiers.
+    VEH::VEHExceptionHandler::BeginSelfTestScope();
+
     bool resumed = false, sehFired = false;
     if (withSafety) {
         __try   { fn(); resumed = true; }
@@ -109,6 +128,8 @@ static KernelResult ExecStub(const uint8_t* bytes, size_t len, bool withSafety) 
         fn();
         resumed = true;
     }
+
+    VEH::VEHExceptionHandler::EndSelfTestScope();
     return { resumed, sehFired };
 }
 

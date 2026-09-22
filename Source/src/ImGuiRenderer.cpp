@@ -1,8 +1,20 @@
-﻿// Copyright (C) 2026 Parker Chace
-// SPDX-License-Identifier: MIT
+﻿// Copyright (C) 2024-2026 Parker Chace
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
-// This file is part of Skyrim CrashGuard.
-// Licensed under the MIT License. See LICENSE file in the project root for details.
+// This file is part of Skyrim Crash Guard.
+//
+// Skyrim Crash Guard is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
+//
+// Skyrim Crash Guard is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+// details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "PCH.h"
 #include "ImGuiRenderer.h"
@@ -68,16 +80,21 @@ namespace CrashGuard {
 
         spdlog::info("ImGuiRenderer: Starting initialization");
 
-        // Get D3D11 device and context from BSRenderManager (replaces BSGraphics::Renderer in v3.6.0+)
-        auto render_manager = RE::BSRenderManager::GetSingleton();
+        // Get the D3D11 device and swap chain from the renderer. CommonLibSSE NG
+        // exposes this as RE::BSGraphics::Renderer (the BSRenderManager alias is gone),
+        // GetRuntimeData() picks the flat or VR member layout by itself, and the swap
+        // chain now lives on the render window rather than directly on the runtime data.
+        // The D3D pointers are REX::W32 declarations of the same COM interfaces, so they
+        // are cast to the real d3d11 types the ImGui backend expects.
+        auto render_manager = RE::BSGraphics::Renderer::GetSingleton();
         if (!render_manager) {
-            spdlog::error("ImGuiRenderer: Failed to get BSRenderManager");
+            spdlog::error("ImGuiRenderer: Failed to get BSGraphics::Renderer");
             return false;
         }
 
         auto& render_data = render_manager->GetRuntimeData();
-        m_device = render_data.forwarder;
-        m_swapChain = render_data.swapChain;
+        m_device = reinterpret_cast<ID3D11Device*>(render_data.forwarder);
+        m_swapChain = reinterpret_cast<IDXGISwapChain*>(render_data.renderWindows[0].swapChain);
 
         if (!m_device || !m_swapChain) {
             spdlog::error("ImGuiRenderer: Failed to get D3D11 device or swap chain");
@@ -220,10 +237,10 @@ namespace CrashGuard {
             io.MouseDown[2] = false;
             io.MouseDrawCursor = false;
             
-            // Clear any keyboard state
-            for (int i = 0; i < IM_ARRAYSIZE(io.KeysDown); i++) {
-                io.KeysDown[i] = false;
-            }
+            // Clear any keyboard state. Dear ImGui 1.87 retired the io.KeysDown[]
+            // array in favour of the key-event API; ClearInputKeys() releases every
+            // key and empties the text input buffer in one call.
+            io.ClearInputKeys();
         }
         
         // Call Win32 NewFrame AFTER we've set mouse state

@@ -1,3 +1,12 @@
+# Copyright (C) 2024-2026 Parker Chace
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This file is part of Skyrim Crash Guard.
+# Skyrim Crash Guard is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option) any
+# later version. See the LICENSE file in the project root for details.
+
 cmake_minimum_required(VERSION 3.21)
 
 # ── vcpkg toolchain (must come before project()) ──
@@ -10,7 +19,7 @@ set(VCPKG_TARGET_TRIPLET "x64-windows-static-md" CACHE STRING "")
 
 project(
     SkyrimCrashGuard
-    VERSION 2.3.6
+    VERSION 2.4.0
     LANGUAGES CXX
 )
 
@@ -20,15 +29,49 @@ option(ENABLE_MO2_DEPLOY "Automatically copy build outputs to MO2 mods folder" O
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Applies to CommonLibSSE as well: it is compiled in-tree, so both halves of the
+# link must agree on the CRT. Matches vcpkg's x64-windows-static-md triplet.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+
 # ═══════════════════════════════════════════════════════════════════════
 # ENGINE-LEVEL CRASH RECOVERY SYSTEM
 # SKSE plugin using CommonLibSSE for game introspection and manipulation
 # Six-layer defense system: L1-L6 (Proactive → Learning)
 # ═══════════════════════════════════════════════════════════════════════
 
-# ── CommonLibSSE-NG setup ──
-# Use CommonLibSSE-NG from vcpkg
-find_package(CommonLibSSE CONFIG REQUIRED)
+# ── CommonLibSSE NG (maintained fork) ──
+# CharmedBaryon/CommonLibSSE-NG has been unmaintained since Sept 2024 and has no
+# support for Skyrim 1.7.x. alandtse/CommonLibSSE-NG (branch `ng`) is the maintained
+# continuation; it is GPL-3.0-or-later, which is why this plugin is GPL-3.0-or-later
+# too (static linking makes the DLL a combined work).
+#
+# Runtime targets: AE (1.6.x/1.7.x) + VR (1.4.15). SE (1.5.97) is deliberately off,
+# which makes CommonLibSSE define SKYRIM_CROSS_VR: flat-vs-VR struct differences are
+# resolved at runtime through GetRuntimeData()/GetVRRuntimeData() and REL::VariantID.
+set(ENABLE_SKYRIM_SE OFF CACHE BOOL "Skyrim SE 1.5.97 support" FORCE)
+set(ENABLE_SKYRIM_AE ON  CACHE BOOL "Skyrim AE 1.6.x/1.7.x support" FORCE)
+set(ENABLE_SKYRIM_VR ON  CACHE BOOL "Skyrim VR 1.4.15 support" FORCE)
+set(BUILD_TESTS OFF CACHE BOOL "CommonLibSSE unit tests" FORCE)
+
+include(FetchContent)
+FetchContent_Declare(
+    commonlibsse
+    GIT_REPOSITORY https://github.com/alandtse/CommonLibSSE-NG.git
+    GIT_TAG v9.0.0
+    GIT_SHALLOW TRUE
+    # Submodules off, then the VR headers and openvr_api.lib are fetched by the
+    # patch step below: a plain submodule update clones all of ValveSoftware/openvr
+    # (~1 GB of history) for two directories we actually need.
+    GIT_SUBMODULES ""
+    PATCH_COMMAND ${CMAKE_COMMAND}
+        -D "COMMONLIB_SOURCE_DIR=<SOURCE_DIR>"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/FetchOpenVR.cmake"
+)
+FetchContent_MakeAvailable(commonlibsse)
+
+# add_commonlibsse_plugin() lives in a helper the root CMakeLists only auto-includes
+# for prebuilt bundles, so pull it in explicitly for the source build.
+include("${commonlibsse_SOURCE_DIR}/cmake/CommonLibSSE.cmake")
 
 # ── Dependencies (vcpkg) ──
 find_package(spdlog CONFIG REQUIRED)
@@ -36,7 +79,6 @@ find_package(fmt CONFIG REQUIRED)
 find_package(zydis CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(toml11 CONFIG REQUIRED)
-find_package(directxtk CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 
 # ── Plugin sources ──
@@ -171,10 +213,16 @@ set(PLUGIN_HEADERS
     include/ToastNotificationManager.h
 )
 
-# ── Build the DLL (use CommonLibSSE-NG helper for multi-runtime targets) ──
-# Replace the normal add_library invocation with add_commonlibsse_plugin provided
-# by CommonLibSSE-NG. This enables building a single DLL that supports SE/AE/VR at runtime.
+# ── Build the DLL ──
+# add_commonlibsse_plugin generates the SKSEPluginInfo declaration, which emits both
+# the modern SKSEPlugin_Version data export and the legacy SKSEPlugin_Query entry
+# point that SKSEVR uses — a single DLL serves SKSE 2.3.1 (AE) and SKSEVR 2.0.12.
 add_commonlibsse_plugin(${PROJECT_NAME}
+    NAME "SkyrimCrashGuard"
+    AUTHOR "Parker Chace"
+    VERSION ${PROJECT_VERSION}
+    MINIMUM_SKSE_VERSION 2.3.1
+    USE_ADDRESS_LIBRARY
     SOURCES
     ${PLUGIN_SOURCES}
     ${PLUGIN_HEADERS}
@@ -215,20 +263,24 @@ target_compile_definitions(${PROJECT_NAME}
     WIN32_LEAN_AND_MEAN
     NOMINMAX
     _CRT_SECURE_NO_WARNINGS
-    # CommonLibSSE-NG runtime support
-    ENABLE_SKYRIM_SE=1
-    ENABLE_SKYRIM_AE=1
-    ENABLE_SKYRIM_VR=1
+    # ENABLE_SKYRIM_AE / ENABLE_SKYRIM_VR (and the derived SKYRIM_CROSS_VR) arrive
+    # PUBLIC from CommonLibSSE::CommonLibSSE — never redefine them here, or the
+    # plugin and the library disagree about struct layout.
     # Plugin metadata
     PLUGIN_NAME="${PROJECT_NAME}"
     PLUGIN_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
     PLUGIN_VERSION_MINOR=${PROJECT_VERSION_MINOR}
     PLUGIN_VERSION_PATCH=${PROJECT_VERSION_PATCH}
-    # Disable manual SKSE exports when using CommonLibSSE-NG
-    DISABLE_MANUAL_SKSE_EXPORTS=1
 )
 
 if(MSVC)
+    # add_commonlibsse_plugin generates __<target>Plugin.cpp, which writes the plugin
+    # name and author as "..."sv string_view literals but includes only REL/Relocation.h
+    # and SKSE/SKSE.h. Force-include a header that opens std::string_view_literals so
+    # that generated file compiles without being edited.
+    target_compile_options(${PROJECT_NAME} PRIVATE
+        /FI"${CMAKE_CURRENT_SOURCE_DIR}/cmake/force_string_view_literals.h")
+
     target_compile_options(${PROJECT_NAME}
         PRIVATE
         /W4
@@ -238,27 +290,15 @@ if(MSVC)
         /wd4201  # nameless struct/union
         /wd4324  # structure padded due to alignment specifier
         /Zc:preprocessor
+        /utf-8   # sources are UTF-8; fmt 12's Unicode support static_asserts on this
         /Zi  # Generate debug information (PDB)
     )
-    
+
     target_link_options(${PROJECT_NAME}
         PRIVATE
         /DEBUG  # Generate PDB file
         /OPT:REF  # Eliminate unreferenced functions/data
         /OPT:ICF  # Enable COMDAT folding
-    )
-    
-    # Dynamic CRT linking — matches vcpkg x64-windows-static-md
-    # Use /MD for Release, /MDd for Debug
-    set_property(TARGET ${PROJECT_NAME} PROPERTY 
-        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
-endif()
-
-if(MSVC)
-    # Force-include a header that provides the "sv" string literal so generated
-    # CommonLibSSE-NG wrapper files compile without needing manual edits.
-    target_compile_options(${PROJECT_NAME} PRIVATE
-        /FI"${CMAKE_CURRENT_SOURCE_DIR}/cmake/force_string_view_literals.h"
     )
 endif()
 
@@ -305,7 +345,6 @@ else()
     message(STATUS "Skipping MO2 deploy copy (target MO2 path not present: ${MO2_MOD_PATH})")
 endif()
 
-
 # Also copy build outputs to the local Skyrim Special Edition game folder (optional - may not exist)
 set(LOCAL_SE_PLUGINS "H:/SteamLibrary/steamapps/common/Skyrim Special Edition/Data/SKSE/Plugins")
 if(EXISTS "H:/SteamLibrary/steamapps/common/Skyrim Special Edition/Data/SKSE")
@@ -325,6 +364,27 @@ if(EXISTS "H:/SteamLibrary/steamapps/common/Skyrim Special Edition/Data/SKSE")
     )
 else()
     message(STATUS "Skipping local SE deploy copy (H: Skyrim folder not found)")
+endif()
+
+# Optional deploy to a local Skyrim VR install (same DLL serves AE and VR)
+set(LOCAL_VR_PLUGINS "$ENV{SKYRIMVR_PATH}" CACHE PATH "Optional Skyrim VR install root for deploy")
+if(NOT LOCAL_VR_PLUGINS)
+    set(LOCAL_VR_PLUGINS "C:/Program Files (x86)/Steam/steamapps/common/SkyrimVR")
+endif()
+if(EXISTS "${LOCAL_VR_PLUGINS}/SkyrimVR.exe")
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${LOCAL_VR_PLUGINS}/Data/SKSE/Plugins"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:${PROJECT_NAME}>"
+            "${LOCAL_VR_PLUGINS}/Data/SKSE/Plugins/SkyrimCrashGuard.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/SkyrimCrashGuard.toml"
+            "${LOCAL_VR_PLUGINS}/Data/SKSE/Plugins/SkyrimCrashGuard.toml"
+        COMMENT "Copying to local Skyrim VR Data/SKSE/Plugins (optional)"
+        VERBATIM
+    )
+else()
+    message(STATUS "Skipping Skyrim VR deploy copy (not found: ${LOCAL_VR_PLUGINS})")
 endif()
 
 # Auto-deploy to OneDrive Skyrim SE SKSE/Plugins if present (common for MO2+OneDrive setups)
@@ -347,147 +407,53 @@ else()
     message(STATUS "Skipping OneDrive SKSE deploy (target not present: ${ONEDRIVE_SKSE_PLUGINS})")
 endif()
 
-message(STATUS "Skyrim Crash Guard v${PROJECT_VERSION} [Engine-Level Recovery — SE/AE]")
-message(STATUS "  CommonLibSSE: ${CommonLibSSENG_DIR}")
+message(STATUS "Skyrim Crash Guard v${PROJECT_VERSION} [Engine-Level Recovery — AE + VR]")
+message(STATUS "  CommonLibSSE NG: ${commonlibsse_SOURCE_DIR}")
 message(STATUS "  Output: ../SKSE/Plugins/")
 
 # ═══════════════════════════════════════════════════════════════════════
 # Testing Configuration
 # ═══════════════════════════════════════════════════════════════════════
 
-option(BUILD_TESTS "Build property-based and unit tests" OFF)
-option(ENABLE_RAPIDCHECK "Enable RapidCheck property-based tests" ON)  # Enabled with C++20
+# Named CRASHGUARD_BUILD_TESTS, not BUILD_TESTS: CommonLibSSE is built in-tree and
+# owns the cache variable BUILD_TESTS for its own Catch2 suite.
+option(CRASHGUARD_BUILD_TESTS "Build Crash Guard unit tests" OFF)
+option(ENABLE_RAPIDCHECK "Enable RapidCheck property-based tests" ON)
 
-if(BUILD_TESTS)
+if(CRASHGUARD_BUILD_TESTS)
     enable_testing()
-    
+
     # Find test dependencies
     find_package(Catch2 3 CONFIG REQUIRED)
-    
-    # RapidCheck for property-based testing (disabled due to C++20/23 incompatibility)
+
     if(ENABLE_RAPIDCHECK)
         find_package(rapidcheck CONFIG REQUIRED)
         message(STATUS "RapidCheck enabled for property-based testing")
     else()
         message(STATUS "RapidCheck disabled - property-based tests will be skipped")
     endif()
-    
-    # Create a separate library for SafetyEvaluation files (no PCH)
-    # TEMPORARILY DISABLED - has compilation errors
-    # add_library(SafetyEvaluationLib STATIC
-    #     src/SafetyEvaluation/ComponentDiscovery.cpp
-    #     src/SafetyEvaluation/FunctionalityTester.cpp
-    #     src/SafetyEvaluation/StabilityTester.cpp
-    #     src/SafetyEvaluation/MemorySafetyTester.cpp
-    #     src/SafetyEvaluation/PerformanceTester.cpp
-    #     src/SafetyEvaluation/ReportGenerator.cpp
-    #     src/SafetyEvaluation/SaveCorruptionAnalyzer.cpp
-    #     src/SafetyEvaluation/SaveIntegrityTester.cpp
-    #     src/SafetyEvaluation/RollbackTester.cpp
-    #     src/SafetyEvaluation/VEHTester.cpp
-    #     src/SafetyEvaluation/IntegrationTester.cpp
-    #     src/SafetyEvaluation/DynamicFixTester.cpp
-    #     src/SafetyEvaluation/PatternLearningTester.cpp
-    #     src/SafetyEvaluation/CompatibilityTester.cpp
-    #     src/SafetyEvaluation/TestSuiteGenerator.cpp
-    #     src/SafetyEvaluation/RegressionDetector.cpp
-    #     src/SafetyEvaluation/SafetyEvaluationSystem.cpp
-    # )
-    # 
-    # target_include_directories(SafetyEvaluationLib
-    #     PUBLIC
-    #     "${CMAKE_CURRENT_SOURCE_DIR}/include"
-    # )
-    # 
-    # target_link_libraries(SafetyEvaluationLib
-    #     PUBLIC
-    #     CommonLibSSE::CommonLibSSE
-    #     spdlog::spdlog
-    #     fmt::fmt
-    #     nlohmann_json::nlohmann_json
-    # )
-    # 
-    # set_target_properties(SafetyEvaluationLib PROPERTIES
-    #     CXX_STANDARD 20
-    #     CXX_STANDARD_REQUIRED ON
-    #     SKIP_PRECOMPILE_HEADERS ON
-    #     DISABLE_PRECOMPILE_HEADERS ON
-    # )
-    # 
-    # # Explicitly disable PCH for all source files in SafetyEvaluationLib
-    # target_compile_options(SafetyEvaluationLib PRIVATE /Y-)
-    
-    # Test executable - Layer 1 Tests
+
+    # Test executable
+    # The property-based and unit test sources were removed from the tree; this
+    # target currently compiles the engine-independent sources only.
     set(TEST_SOURCES
-        # Source files needed by tests (minimal set to avoid game engine dependencies)
         src/Config.cpp
         src/DiagnosticLogger.cpp
         src/SeverityAnalyzer.cpp
         src/NotificationThresholdManager.cpp
-        # src/AllocationTracker.cpp  # Excluded - requires SKSE APIs not available in test environment
-        # src/MemoryAllocatorHooks.cpp  # Excluded - requires SKSE APIs not available in test environment
-        # src/VEH.cpp  # Excluded - complex dependencies
-        # src/GameDetect.cpp  # Excluded - game engine dependencies
-        # src/GameObjectIntrospector.cpp  # Excluded - game engine dependencies
-        # src/RootCauseAnalyzer.cpp  # Excluded - game engine dependencies
-        # src/MeshValidator.cpp  # Excluded - game engine dependencies
-        # src/AnimationHandler.cpp  # Excluded - game engine dependencies
-        # src/CellManager.cpp  # Excluded - too many game engine dependencies
-        # src/ScriptMonitor.cpp  # Excluded - game engine dependencies
-        # src/FunctionHookManager.cpp  # Excluded - game engine dependencies
-        # src/FormIDValidator.cpp  # Excluded - game engine dependencies
-        # src/DynamicFixApplicator.cpp  # Excluded - game engine dependencies
-        # src/StateManager.cpp  # Excluded - game engine dependencies
-        # src/PatternLearningSystem.cpp  # Excluded - game engine dependencies
-        # src/CoSaveManager.cpp  # Excluded - game engine dependencies
-        # src/UserNotificationManager.cpp  # Excluded - game engine dependencies
-        # src/ResourceValidator.cpp  # Excluded - game engine dependencies
-        # src/MemoryManager.cpp  # Excluded - uses SKSE logging not available in tests
-        # src/SaveLoadResilience.cpp  # Excluded - game engine dependencies
-        # src/RealTimeFixApplicator.cpp  # Excluded - game engine dependencies
     )
-    
-    # Add property-based tests only if RapidCheck is enabled
-    if(ENABLE_RAPIDCHECK)
-        list(APPEND TEST_SOURCES
-            # Property-based tests temporarily disabled due to:
-            # 1. RapidCheck C++20/MSVC template compatibility issues
-            # 2. Class redefinition conflicts in test files
-            # 3. Missing method implementations in mock classes
-            # TODO: Refactor property tests to use proper mocking framework
-            # tests/VEHPropertyTests.cpp
-            # tests/MeshRepairPropertyTests.cpp
-            # tests/NullPointerSafetyPropertyTest.cpp
-            # tests/AnimationErrorRecoveryPropertyTest.cpp
-            # tests/ScriptNullReferencePropertyTest.cpp
-            # tests/FormIDValidationPropertyTest.cpp
-            # tests/StateRollbackPropertyTest.cpp
-            # tests/DanglingPointerPropertyTest.cpp
-            # tests/MemoryLeakPropertyTest.cpp
-            # tests/PatternLearningPropertyTests.cpp
-        )
-    endif()
-    
-    # Add unit tests (always included)
-    # Note: All allocation hooks tests have been removed along with the system
-    
+
     add_executable(CrashGuardTests ${TEST_SOURCES})
-    
+
     target_include_directories(CrashGuardTests
         PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests"  # For openvr_stub.h
+        "${CMAKE_CURRENT_BINARY_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests"
     )
-    
-    # Ensure C++20 standard for tests (RapidCheck has C++23 compatibility issues)
-    set_target_properties(CrashGuardTests PROPERTIES
-        CXX_STANDARD 20
-        CXX_STANDARD_REQUIRED ON
-    )
-    
+
     target_link_libraries(CrashGuardTests
         PRIVATE
-        # SafetyEvaluationLib  # TEMPORARILY DISABLED
         Catch2::Catch2WithMain
         CommonLibSSE::CommonLibSSE
         spdlog::spdlog
@@ -498,8 +464,7 @@ if(BUILD_TESTS)
         dbghelp.lib
         psapi.lib
     )
-    
-    # Link RapidCheck only if enabled
+
     if(ENABLE_RAPIDCHECK)
         target_link_libraries(CrashGuardTests PRIVATE rapidcheck)
     endif()
@@ -510,10 +475,9 @@ if(BUILD_TESTS)
         _UNICODE
         WIN32_LEAN_AND_MEAN
         NOMINMAX
-        ENABLE_SKYRIM_VR=0
         BUILD_TESTS=1
     )
-    
+
     if(MSVC)
         target_compile_options(CrashGuardTests
             PRIVATE
@@ -523,65 +487,14 @@ if(BUILD_TESTS)
             /wd4200
             /wd4201
             /wd4324
-            # Disable conforming preprocessor for RapidCheck compatibility
-            /Zc:preprocessor-
-            # Enable parallel PDB writes to avoid C1041 errors
+            /Zc:preprocessor
             /FS
         )
-        set_property(TARGET CrashGuardTests PROPERTY 
-            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
     endif()
-    
+
     # Register tests with CTest
     include(Catch)
     catch_discover_tests(CrashGuardTests)
-    
+
     message(STATUS "Tests enabled: CrashGuardTests")
-    
-    # ═══════════════════════════════════════════════════════════════════════
-    # Safety Evaluation CLI Tool
-    # ═══════════════════════════════════════════════════════════════════════
-    
-    # TEMPORARILY DISABLED - SafetyEvaluationLib has compilation errors
-    # add_executable(SafetyEvaluationTool
-    #     src/SafetyEvaluation/main.cpp
-    # )
-    # 
-    # target_include_directories(SafetyEvaluationTool
-    #     PRIVATE
-    #     "${CMAKE_CURRENT_SOURCE_DIR}/include"
-    # )
-    # 
-    # target_link_libraries(SafetyEvaluationTool
-    #     PRIVATE
-    #     SafetyEvaluationLib
-    #     CommonLibSSE::CommonLibSSE
-    #     spdlog::spdlog
-    #     fmt::fmt
-    #     nlohmann_json::nlohmann_json
-    # )
-    # 
-    # target_compile_definitions(SafetyEvaluationTool
-    #     PRIVATE
-    #     UNICODE
-    #     _UNICODE
-    #     WIN32_LEAN_AND_MEAN
-    #     NOMINMAX
-    # )
-    
-    # if(MSVC)
-    #     target_compile_options(SafetyEvaluationTool
-    #         PRIVATE
-    #         /W4
-    #         /wd4100
-    #         /wd4189
-    #         /wd4200
-    #         /wd4201
-    #         /wd4324
-    #     )
-    #     set_property(TARGET SafetyEvaluationTool PROPERTY 
-    #         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
-    # endif()
-    # 
-    # message(STATUS "Safety Evaluation Tool enabled: SafetyEvaluationTool")
 endif()

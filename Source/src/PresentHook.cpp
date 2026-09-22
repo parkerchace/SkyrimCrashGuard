@@ -1,8 +1,20 @@
-﻿// Copyright (C) 2026 Parker Chace
-// SPDX-License-Identifier: MIT
+﻿// Copyright (C) 2024-2026 Parker Chace
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
-// This file is part of Skyrim CrashGuard.
-// Licensed under the MIT License. See LICENSE file in the project root for details.
+// This file is part of Skyrim Crash Guard.
+//
+// Skyrim Crash Guard is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
+//
+// Skyrim Crash Guard is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+// details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "PCH.h"
 #include "PresentHook.h"
@@ -140,15 +152,17 @@ namespace CrashGuard {
             spdlog::info("[PresentHook] VR detected - ImGui overlay enabled by config (allowInVR=true). Proceeding, overlay may require additional hooks to fully work in VR");
         }
         
-        // Get the swap chain from BSRenderManager (replaces BSGraphics::Renderer in v3.6.0+)
-        auto renderer = RE::BSRenderManager::GetSingleton();
+        // Get the swap chain from the renderer. CommonLibSSE NG exposes this as
+        // RE::BSGraphics::Renderer, whose GetRuntimeData() resolves the flat or VR
+        // member layout at runtime; the swap chain hangs off the render window.
+        auto renderer = RE::BSGraphics::Renderer::GetSingleton();
         if (!renderer) {
-            spdlog::error("[PresentHook] Failed to get BSRenderManager");
+            spdlog::error("[PresentHook] Failed to get BSGraphics::Renderer");
             return false;
         }
         
         auto& render_data = renderer->GetRuntimeData();
-        auto swapChain = render_data.swapChain;
+        auto swapChain = render_data.renderWindows[0].swapChain;
         if (!swapChain) {
             spdlog::error("[PresentHook] Failed to get swap chain");
             return false;
@@ -175,10 +189,10 @@ namespace CrashGuard {
             spdlog::info("[PresentHook] Uninstalling Present hook");
             
             // Get the swap chain
-            auto renderer = RE::BSRenderManager::GetSingleton();
+            auto renderer = RE::BSGraphics::Renderer::GetSingleton();
             if (renderer) {
                 auto& render_data = renderer->GetRuntimeData();
-                auto swapChain = render_data.swapChain;
+                auto swapChain = render_data.renderWindows[0].swapChain;
                 if (swapChain) {
                     void** vtable = *reinterpret_cast<void***>(swapChain);
                     

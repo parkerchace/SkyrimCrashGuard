@@ -1,8 +1,20 @@
-﻿// Copyright (C) 2026 Parker Chace
-// SPDX-License-Identifier: MIT
+﻿// Copyright (C) 2024-2026 Parker Chace
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
-// This file is part of Skyrim CrashGuard.
-// Licensed under the MIT License. See LICENSE file in the project root for details.
+// This file is part of Skyrim Crash Guard.
+//
+// Skyrim Crash Guard is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
+//
+// Skyrim Crash Guard is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+// details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
 
@@ -57,8 +69,11 @@ namespace CrashGuard {
         uint64_t    accessAddress = 0;
         /// 0=read, 1=write, 8=execute, -1=unknown
         int         accessType = -1;
-        /// Register that was zeroed or otherwise modified, e.g. "rax", "xmm3" — empty if none
+        /// Register that was zeroed or otherwise modified, e.g. "rax", "xmm3" - empty if none
         std::string affectedRegister;
+        /// True when CrashGuard's own test suite raised this fault on purpose. Such
+        /// entries are not game crashes and carry no mod attribution.
+        bool        selfTest = false;
 
         RecoveryEntry() : successful(false), layerUsed(LayerID::Unrecovered) {}
     };
@@ -85,7 +100,8 @@ namespace CrashGuard {
             std::string decodedInstruction = {},
             uint64_t    accessAddress      = 0,
             int         accessType         = -1,
-            std::string affectedRegister   = {}
+            std::string affectedRegister   = {},
+            bool        selfTest           = false
         );
         
         /// Add a resource warning notification (auto-opens menu if critical)

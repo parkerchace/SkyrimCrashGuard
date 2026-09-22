@@ -1,8 +1,20 @@
-// Copyright (C) 2026 Parker Chace
-// SPDX-License-Identifier: MIT
+// Copyright (C) 2024-2026 Parker Chace
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
-// This file is part of Skyrim CrashGuard.
-// Licensed under the MIT License. See LICENSE file in the project root for details.
+// This file is part of Skyrim Crash Guard.
+//
+// Skyrim Crash Guard is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
+//
+// Skyrim Crash Guard is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+// details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
 
 // main.cpp
 // SKSE Plugin Entry Point
@@ -95,17 +107,17 @@ namespace {
     // Helper to check REL/Address DB readiness
     bool IsRelocationDatabaseReady() {
         try {
-            // Force REL's IDDatabase singleton to initialize and load the
+            // Force REL's IDDB singleton to initialize and load the
             // address library file. If the address library is missing or
             // incompatible, this may throw or call report_and_fail.
-            (void)REL::IDDatabase::get();
-            if (auto log = spdlog::default_logger()) log->info("REL: IDDatabase initialized (module AE={}, VR={})", REL::Module::IsAE(), REL::Module::IsVR());
+            (void)REL::IDDB::get();
+            if (auto log = spdlog::default_logger()) log->info("REL: IDDB initialized (module AE={}, VR={})", REL::Module::IsAE(), REL::Module::IsVR());
             return true;
         } catch (const std::exception& e) {
-            if (auto log = spdlog::default_logger()) log->warn("REL: IDDatabase initialization failed: {}", e.what());
+            if (auto log = spdlog::default_logger()) log->warn("REL: IDDB initialization failed: {}", e.what());
             return false;
         } catch (...) {
-            if (auto log = spdlog::default_logger()) log->warn("REL: IDDatabase initialization failed (unknown error)");
+            if (auto log = spdlog::default_logger()) log->warn("REL: IDDB initialization failed (unknown error)");
             return false;
         }
     }
@@ -261,7 +273,7 @@ namespace {
 
         // If address library validation failed, avoid initializing
         // relocation-dependent subsystems. Additionally ensure REL's
-        // IDDatabase is initialized and usable. We keep a minimal set of
+        // IDDB is initialized and usable. We keep a minimal set of
         // components so the plugin remains inert but doesn't crash.
         bool addressLibOk = AddressLib::IsValid();
         bool relOk = IsRelocationDatabaseReady();
@@ -278,7 +290,7 @@ namespace {
             PhaseTracking::PhaseTracker::SetComponentStatus(status);
             PhaseTracking::PhaseTracker::LogStartupSummary();
 
-            if (log) log->info("Plugin running in limited-safe mode due to missing/invalid address library or REL IDDatabase");
+            if (log) log->info("Plugin running in limited-safe mode due to missing/invalid address library or REL IDDB");
             return;
         }
 
@@ -498,7 +510,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     // Version independence is handled by SKSEPlugin_Version flags in SKSEExports.cpp
     SKSE::Init(skse);
     
-    // Probe REL/IDDatabase and log results before initializing plugin
+    // Probe REL/IDDB and log results before initializing plugin
     try {
         if (auto l = spdlog::default_logger()) {
             l->info("AddressLib valid: {}", AddressLib::IsValid());

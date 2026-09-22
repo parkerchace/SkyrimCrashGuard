@@ -4,6 +4,51 @@ All notable changes to SkyrimCrashGuard are documented here.
 
 ---
 
+## [2.4.0] - 2026-09-21
+
+Migration release: CommonLibSSE NG (maintained fork), GPL-3.0-or-later, Skyrim AE 1.7.104 + VR 1.4.15.
+
+### Changed
+
+- **License: MIT to GPL-3.0-or-later** — CharmedBaryon/CommonLibSSE-NG has been unmaintained since September 2024 and does not support Skyrim 1.7.x. The maintained continuation, [alandtse/CommonLibSSE-NG](https://github.com/alandtse/CommonLibSSE-NG) (branch `ng`), is GPL-3.0-or-later. Crash Guard links it statically, which makes the DLL a combined work, so the plugin is now GPL-3.0-or-later too. CommonLibSSE NG's Modding Exception covers linking against Skyrim, SKSE and the GPU SDKs — it does not cover plugin code. `LICENSE` now holds the GPL-3.0 text and all 157 source and header files carry a GPL notice
+- **CommonLibSSE NG 3.6.0 (vcpkg) to v9.0.0 (CMake FetchContent)** — the `vcpkg-colorglass` registry and the in-tree `cmake/ports/commonlibsse-ng` port are gone. CMake now fetches the library pinned to tag `v9.0.0` into `build/_deps/commonlibsse-src` and compiles it in-tree
+- **Runtime targets: SE + AE + VR to AE + VR** — `ENABLE_SKYRIM_SE=OFF`, `ENABLE_SKYRIM_AE=ON`, `ENABLE_SKYRIM_VR=ON`. This makes CommonLibSSE define `SKYRIM_CROSS_VR`, where flat-vs-VR struct differences are resolved at runtime. Skyrim SE 1.5.97 is no longer supported
+- **Minimum SKSE version 2.3.1** — declared through `add_commonlibsse_plugin(... MINIMUM_SKSE_VERSION 2.3.1)`. This does not lock out VR: `SKSEPluginInfo` also emits the legacy `SKSEPlugin_Query` export that SKSEVR 2.0.12 uses
+- **openvr submodule fetched sparsely** — `cmake/FetchOpenVR.cmake` fetches the exact openvr commit CommonLibSSE pins, blobless and limited to `headers/` and `lib/win64`, instead of cloning ~1 GB of ValveSoftware/openvr history for two directories
+- **vcpkg baseline** — `d1e11918...` to `6d7bf7ef...`; `directxmath` and `rapidcsv` added (CommonLibSSE NG needs them), `commonlibsse-ng` removed
+- **`BUILD_TESTS` renamed to `CRASHGUARD_BUILD_TESTS`** — CommonLibSSE is built in-tree and owns the cache variable `BUILD_TESTS` for its own Catch2 suite
+- **`/utf-8` added to the compile flags** — fmt 12 static-asserts on it for Unicode support
+
+### Added
+
+- **F11 Recovery view now describes the actual crash** - the detail panel led with a per-layer source-code walkthrough that read identically for every crash that layer handled. It now opens with this crash: outcome, address, how many times that address has fired this session, what the faulting instruction did (read/write/transfer of control, and how the touched address relates to null), where it faulted, and what CrashGuard changed - naming the register it set to 0 or the write it withheld. The walkthrough is still there, folded into a collapsed "CrashGuard source walkthrough" section. A "Copy report" button puts the entry on the clipboard for bug reports.
+
+  The text states only what CrashGuard observed. It does not say whose fault a crash was: the module holding the faulting instruction is where the code was executing, not evidence that the module produced the bad value, and the panel says so rather than implying blame
+- **Modules on the stack are listed for recovered crashes** - the faulting module is usually the game executable, which names nothing useful. On recovery, CrashGuard now reads a shallow slice of raw stack slots and lists the non-game modules found below the fault (`RecoveryEntry::suspectedMods`, previously always empty). System, GPU-driver, crash-logger and CrashGuard frames are filtered out. Presented as "what was present, not a diagnosis", because raw slots can hold stale return addresses. Loader lookups are capped per recovery
+- **Self-tests are identified as self-tests** - faults raised by the built-in crash-test suite were recorded like any other crash, and since the stub tiers fault in an allocated page that belongs to no module, they appeared in the recovery list as "unknown". `VEHExceptionHandler::BeginSelfTestScope()` now marks them (labelling only - the stub tiers still run under the real recovery rules, which is their purpose). Such entries are tagged `[test]` in the list, carry a `[SELF-TEST]` badge and a "CrashGuard test harness" module, show no mod attribution, are counted separately in the session summary, prefix their toast with "Self-test:", and no longer advance the "N issues prevented" HUD counter
+
+### Fixed
+
+- **Built-in flat-runtime crash sites are version-gated** — the non-VR entries in `VEH::Initialize` (Moon/Sky rendering, SKSE init string construction, ImpactManager, and the two unconditional particle-system sites) are raw module offsets disassembled on **AE 1.6.1170**; offset `+0D1BF70` is address-library ID 70251 in `versionlib-1-6-1170-0.bin`, matching the "function 70251" in the code comments. The same ID sits at `+0EE0930` on 1.7.104, so on any other build those entries pointed canned register-and-skip repairs at unrelated instructions — and the two unconditional ones were applied to SkyrimVR.exe as well. They are now registered only when the running executable is 1.6.1170; every other runtime relies on L1b pattern matching, which the comments already describe as covering the same crash shapes. `IsInMoonOrSkyFunction` is gated the same way
+- **Bone data is read through CommonLibSSE's accessors** — `NiSkinData::BoneData` is 0x58 bytes on flat runtimes and 0x70 in VR, so the old `skinData->boneData[i]` indexing in `MeshValidator` read the wrong bone in VR. Bone count, per-bone vertex data and vertex counts now go through `GetBoneCount()` / `GetBoneDataBoneVertData()` / `GetBoneDataVerts()`
+- **Deleted `include/openvr.h`** — a hand-written stub declaring empty `vr::IVRSystem` and friends, left over from when VR was not really built. With VR enabled it would shadow CommonLibSSE's real `openvr.h` on the include path
+
+### API migration (CommonLibSSE NG 3.6 to 9.0)
+
+- `REL::IDDatabase` to `REL::IDDB`
+- `RE::BSRenderManager` to `RE::BSGraphics::Renderer`; the swap chain moved from the runtime data to `renderWindows[0].swapChain`, and the D3D pointers are now `REX::W32` declarations that are cast to the real d3d11 types for the ImGui backend
+- `RE::DebugNotification` to `RE::SendHUDMessage::ShowHUDMessage` (16 call sites)
+- `RE::NiGeometry::RUNTIME_DATA` members lost their `m_` prefix: `m_spModelData` to `spModelData`, `m_spSkinInstance` to `spSkinInstance`
+- `RE::ControlMap` members (`ignoreKeyboardMouse`, `ignoreActivateDisabledEvents`) are reached through `GetRuntimeData()` in a cross-VR build, and `ToggleControls` takes a third `storeState` argument
+- `RE::TESObjectCELL::ForEachReference` hands the callback a `TESObjectREFR*` instead of a reference; all five callbacks now take a pointer and null-check it
+- `RE::TES::worldSpace` moved into the versioned `RUNTIME_DATA2` block: `tes->GetRuntimeData2().worldSpace`
+- `RE::CrosshairPickData::target` is one handle per tracked device in a cross-VR build; `GetActiveTarget()` picks the right one
+- `ImGuiIO::KeysDown[]` (removed in Dear ImGui 1.87) to `io.ClearInputKeys()`
+- Hard-coded vtable ids in `FunctionHookManager` (`{235511, 190259}` and `{256504, 205174}`) replaced by `RE::VTABLE_TESObjectREFR[0]` / `RE::VTABLE_IAnimationGraphManagerHolder[0]`, which carry the AE id and the VR offset together and follow CommonLibSSE updates
+- `AddressLib::ResolveID()` removed — a missing address-library id terminates the process inside `REL::IDDB` (`report_and_fail`), so a wrapper that appears to fail softly was misleading
+
+---
+
 ## [2.3.6] - 2026-05-29
 
 ### Fixed

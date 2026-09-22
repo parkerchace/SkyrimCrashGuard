@@ -1,8 +1,20 @@
-// Copyright (C) 2026 Parker Chace
-// SPDX-License-Identifier: MIT
+// Copyright (C) 2024-2026 Parker Chace
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
-// This file is part of Skyrim CrashGuard.
-// Licensed under the MIT License. See LICENSE file in the project root for details.
+// This file is part of Skyrim Crash Guard.
+//
+// Skyrim Crash Guard is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
+//
+// Skyrim Crash Guard is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+// details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "PCH.h"
 #include "FunctionHookManager.h"
@@ -356,14 +368,16 @@ namespace FunctionHooks {
         try {
             std::uintptr_t vtbl_address = 0;
             
-            // Use Address Library for all versions (SE/AE/VR)
-            auto vtblId = AddressLib::ResolveID({235511u, 190259u});
-            if (!vtblId) {
-                result.errorMessage = "VTABLE_TESObjectREFR id missing - skipping mesh hook";
-                spdlog::warn("MeshLoadingHook: VTABLE_TESObjectREFR id missing in address library - skipping hook");
+            // Ask CommonLibSSE for the vtable rather than repeating its ids here:
+            // RE::VTABLE_TESObjectREFR[0] is a REL::VariantID carrying the AE id and
+            // the VR offset, so one call is correct on both runtimes and stays correct
+            // when CommonLibSSE revises the id.
+            vtbl_address = RE::VTABLE_TESObjectREFR[0].address();
+            if (!vtbl_address) {
+                result.errorMessage = "VTABLE_TESObjectREFR unavailable on this runtime - skipping mesh hook";
+                spdlog::warn("MeshLoadingHook: {}", result.errorMessage);
                 return result;
             }
-            vtbl_address = *vtblId;
             
             // Calculate the address of the virtual function at offset 0x6A (Load3D)
             // Note: VR vtable layout is the same as SE for this function
@@ -420,14 +434,14 @@ namespace FunctionHooks {
         try {
             std::uintptr_t vtbl_address = 0;
             
-            // Use Address Library for all versions (SE/AE/VR)
-            auto animVtblId = AddressLib::ResolveID({256504u, 205174u});
-            if (!animVtblId) {
-                result.errorMessage = "VTABLE_IAnimationGraphManagerHolder id missing - skipping animation hook";
-                spdlog::warn("AnimationHook: VTABLE_IAnimationGraphManagerHolder id missing in address library - skipping hook");
+            // See the note in InstallMeshLoadingHooks: take the vtable straight from
+            // CommonLibSSE so the AE id and the VR offset both come from one place.
+            vtbl_address = RE::VTABLE_IAnimationGraphManagerHolder[0].address();
+            if (!vtbl_address) {
+                result.errorMessage = "VTABLE_IAnimationGraphManagerHolder unavailable on this runtime - skipping animation hook";
+                spdlog::warn("AnimationHook: {}", result.errorMessage);
                 return result;
             }
-            vtbl_address = *animVtblId;
             
             // Calculate the address of the virtual function at offset 0x01
             // Note: VR vtable layout is the same as SE for this function

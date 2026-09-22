@@ -1,8 +1,20 @@
-// Copyright (C) 2026 Parker Chace
-// SPDX-License-Identifier: MIT
+// Copyright (C) 2024-2026 Parker Chace
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
-// This file is part of Skyrim CrashGuard.
-// Licensed under the MIT License. See LICENSE file in the project root for details.
+// This file is part of Skyrim Crash Guard.
+//
+// Skyrim Crash Guard is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
+//
+// Skyrim Crash Guard is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+// details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "PCH.h"
 #include "MeshValidator.h"
@@ -109,8 +121,8 @@ namespace MeshValidation {
 
         // Validate bone weights if skinned
         auto& runtimeData = geometry->GetRuntimeData();
-        if (runtimeData.m_spSkinInstance) {
-            if (!ValidateBoneWeights(runtimeData.m_spSkinInstance.get(), result.errors)) {
+        if (runtimeData.spSkinInstance) {
+            if (!ValidateBoneWeights(runtimeData.spSkinInstance.get(), result.errors)) {
                 result.isValid = false;
                 // Bone indices can be clamped
             }
@@ -149,7 +161,7 @@ namespace MeshValidation {
         }
 
         // Step 2: Recalculate normals if needed
-        auto geometryData = geometry->GetRuntimeData().m_spModelData.get();
+        auto geometryData = geometry->GetRuntimeData().spModelData.get();
         if (geometryData && (!geometryData->normal || geometryData->vertices == 0)) {
             if (!RecalculateNormals(geometry)) {
                 spdlog::warn("Failed to recalculate normals");
@@ -167,8 +179,8 @@ namespace MeshValidation {
 
         // Step 4: Clamp bone indices if skinned
         auto& runtimeData = geometry->GetRuntimeData();
-        if (runtimeData.m_spSkinInstance) {
-            if (!ClampBoneIndices(runtimeData.m_spSkinInstance.get())) {
+        if (runtimeData.spSkinInstance) {
+            if (!ClampBoneIndices(runtimeData.spSkinInstance.get())) {
                 spdlog::warn("Failed to clamp bone indices");
                 repairSuccess = false;
             }
@@ -199,7 +211,7 @@ namespace MeshValidation {
         // Inline null check
         using namespace Performance;
         
-        auto geometryData = geometry->GetRuntimeData().m_spModelData.get();
+        auto geometryData = geometry->GetRuntimeData().spModelData.get();
         if (!IsValidPointer(geometryData)) {
             errors.push_back("Geometry data is null");
             return false;
@@ -241,7 +253,7 @@ namespace MeshValidation {
     }
 
     bool MeshValidator::ValidateNormals(const RE::NiGeometry* geometry, std::vector<std::string>& errors) {
-        auto geometryData = geometry->GetRuntimeData().m_spModelData.get();
+        auto geometryData = geometry->GetRuntimeData().spModelData.get();
         if (!geometryData) {
             return false;
         }
@@ -283,7 +295,7 @@ namespace MeshValidation {
     }
 
     bool MeshValidator::ValidateUVCoords(const RE::NiGeometry* geometry, std::vector<std::string>& errors) {
-        auto geometryData = geometry->GetRuntimeData().m_spModelData.get();
+        auto geometryData = geometry->GetRuntimeData().spModelData.get();
         if (!geometryData) {
             return false;
         }
@@ -344,40 +356,31 @@ namespace MeshValidation {
         }
 
         auto skinData = skin->skinData.get();
-        if (!skinData->boneData) {
+        // CommonLibSSE NG hides NiSkinData's bone array behind accessors: a BoneData
+        // entry is 0x58 bytes on flat runtimes but 0x70 in VR, so indexing the array
+        // directly reads the wrong bone in VR. GetBoneDataAddress(0) is the array base,
+        // which is what the old null check on `boneData` tested.
+        if (!skinData->GetBoneDataAddress(0)) {
             errors.push_back("Bone data array is null");
             isValid = false;
             return isValid;
         }
 
         // Validate bone indices and weights with bounds checking
-        for (uint32_t boneIdx = 0; boneIdx < skinData->bones; ++boneIdx) {
-            // Bounds check: ensure bone index is within valid range
-            if (boneIdx >= skinData->bones) {
-                errors.push_back(fmt::format("Bone index {} out of bounds (size: {})", boneIdx, skinData->bones));
-                isValid = false;
-                break;
-            }
+        const uint32_t boneCount = skinData->GetBoneCount();
+        for (uint32_t boneIdx = 0; boneIdx < boneCount; ++boneIdx) {
+            const auto* boneVertData = skinData->GetBoneDataBoneVertData(boneIdx);
             
-            const auto& boneData = skinData->boneData[boneIdx];
-            
-            if (!boneData.boneVertData) {
+            if (!boneVertData) {
                 errors.push_back(fmt::format("Bone {} has null vertex data", boneIdx));
                 isValid = false;
                 continue;
             }
 
             // Check each vertex influenced by this bone
-            for (uint16_t vertIdx = 0; vertIdx < boneData.verts; ++vertIdx) {
-                // Bounds check: ensure vertex index is within valid range
-                if (vertIdx >= boneData.verts) {
-                    errors.push_back(fmt::format("Bone {} vertex index {} out of bounds (size: {})", 
-                        boneIdx, vertIdx, boneData.verts));
-                    isValid = false;
-                    break;
-                }
-                
-                const auto& vertData = boneData.boneVertData[vertIdx];
+            const uint16_t vertCount = skinData->GetBoneDataVerts(boneIdx);
+            for (uint16_t vertIdx = 0; vertIdx < vertCount; ++vertIdx) {
+                const auto& vertData = boneVertData[vertIdx];
                 
                 // Check weight is valid
                 if (!IsValidFloat(vertData.weight)) {
@@ -400,7 +403,7 @@ namespace MeshValidation {
     }
 
     bool MeshValidator::ValidateTriangles(const RE::NiGeometry* geometry, std::vector<std::string>& errors) {
-        auto geometryData = geometry->GetRuntimeData().m_spModelData.get();
+        auto geometryData = geometry->GetRuntimeData().spModelData.get();
         if (!geometryData || !geometryData->vertex) {
             return false;
         }
@@ -421,7 +424,7 @@ namespace MeshValidation {
     // ========================================================================
 
     bool MeshValidator::RecalculateNormals(RE::NiGeometry* geometry) {
-        auto geometryData = geometry->GetRuntimeData().m_spModelData.get();
+        auto geometryData = geometry->GetRuntimeData().spModelData.get();
         if (!geometryData || !geometryData->vertex || geometryData->vertices == 0) {
             return false;
         }
@@ -458,7 +461,7 @@ namespace MeshValidation {
     }
 
     bool MeshValidator::GeneratePlanarUVs(RE::NiGeometry* geometry) {
-        auto geometryData = geometry->GetRuntimeData().m_spModelData.get();
+        auto geometryData = geometry->GetRuntimeData().spModelData.get();
         if (!geometryData || !geometryData->vertex || geometryData->vertices == 0) {
             return false;
         }
@@ -528,38 +531,29 @@ namespace MeshValidation {
         }
 
         auto skinData = skin->skinData.get();
-        if (!skinData->boneData) {
+        // See ValidateBoneWeights: the bone array is reached through accessors because
+        // its stride differs between the flat runtimes and VR.
+        if (!skinData->GetBoneDataAddress(0)) {
             return false;
         }
 
-        // spdlog::debug("Clamping bone indices for {} bones", skinData->bones);
+        // spdlog::debug("Clamping bone indices for {} bones", skinData->GetBoneCount());
 
         bool clamped = false;
 
         // Clamp bone indices to valid range with bounds checking
-        for (uint32_t boneIdx = 0; boneIdx < skinData->bones; ++boneIdx) {
-            // Bounds check: ensure bone index is within valid range
-            if (boneIdx >= skinData->bones) {
-                spdlog::error("Bone index {} out of bounds (size: {})", boneIdx, skinData->bones);
-                break;
-            }
+        const uint32_t boneCount = skinData->GetBoneCount();
+        for (uint32_t boneIdx = 0; boneIdx < boneCount; ++boneIdx) {
+            auto* boneVertData = skinData->GetBoneDataBoneVertData(boneIdx);
             
-            auto& boneData = skinData->boneData[boneIdx];
-            
-            if (!boneData.boneVertData) {
+            if (!boneVertData) {
                 continue;
             }
 
             // Check each vertex influenced by this bone
-            for (uint16_t vertIdx = 0; vertIdx < boneData.verts; ++vertIdx) {
-                // Bounds check: ensure vertex index is within valid range
-                if (vertIdx >= boneData.verts) {
-                    spdlog::error("Bone {} vertex index {} out of bounds (size: {})", 
-                        boneIdx, vertIdx, boneData.verts);
-                    break;
-                }
-                
-                auto& vertData = boneData.boneVertData[vertIdx];
+            const uint16_t vertCount = skinData->GetBoneDataVerts(boneIdx);
+            for (uint16_t vertIdx = 0; vertIdx < vertCount; ++vertIdx) {
+                auto& vertData = boneVertData[vertIdx];
                 
                 // Clamp weight to [0, 1]
                 if (vertData.weight < 0.0f) {
@@ -581,7 +575,7 @@ namespace MeshValidation {
 
     bool MeshValidator::ReplaceInvalidValues(RE::NiGeometry* geometry) {
         auto& runtimeData = geometry->GetRuntimeData();
-        auto geometryData = runtimeData.m_spModelData.get();
+        auto geometryData = runtimeData.spModelData.get();
         if (!geometryData) {
             return false;
         }

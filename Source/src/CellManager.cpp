@@ -1,3 +1,21 @@
+// Copyright (C) 2024-2026 Parker Chace
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// This file is part of Skyrim Crash Guard.
+//
+// Skyrim Crash Guard is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
+//
+// Skyrim Crash Guard is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+// details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
 #include "PCH.h"
 #include "CellManager.h"
 #include <shared_mutex>  // For std::shared_mutex and std::shared_lock
@@ -190,7 +208,9 @@ namespace CellValidation {
         // Get cell references count
         size_t referenceCount = 0;
         try {
-            cell->ForEachReference([&](RE::TESObjectREFR& ref) {
+            // CommonLibSSE NG hands the callback a TESObjectREFR* (it used to be a
+            // reference), so every callback below takes a pointer and guards it.
+            cell->ForEachReference([&](RE::TESObjectREFR*) {
                 referenceCount++;
                 return RE::BSContainer::ForEachResult::kContinue;
             });
@@ -211,12 +231,12 @@ namespace CellValidation {
 
         // Validate each reference
         try {
-            cell->ForEachReference([&](RE::TESObjectREFR& ref) {
-                if (!ValidateReference(&ref)) {
+            cell->ForEachReference([&](RE::TESObjectREFR* ref) {
+                if (!ValidateReference(ref)) {
                     result.invalidReferenceCount++;
                     result.isValid = false;
                     result.errors.push_back(fmt::format("Invalid reference: FormID {:08X}", 
-                                                       ref.GetFormID()));
+                                                       ref ? ref->GetFormID() : 0));
                 }
                 return RE::BSContainer::ForEachResult::kContinue;
             });
@@ -313,8 +333,11 @@ namespace CellValidation {
         bool hasCircularRef = false;
         
         try {
-            cell->ForEachReference([&](RE::TESObjectREFR& ref) {
-                RE::FormID refID = ref.GetFormID();
+            cell->ForEachReference([&](RE::TESObjectREFR* ref) {
+                if (!ref) {
+                    return RE::BSContainer::ForEachResult::kContinue;
+                }
+                RE::FormID refID = ref->GetFormID();
                 if (visited.find(refID) != visited.end()) {
                     // Duplicate reference found - potential circular reference
                     hasCircularRef = true;
@@ -340,15 +363,15 @@ namespace CellValidation {
         size_t invalidCount = 0;
         
         try {
-            cell->ForEachReference([&](RE::TESObjectREFR& ref) {
-                if (!ValidateReference(&ref)) {
+            cell->ForEachReference([&](RE::TESObjectREFR* ref) {
+                if (!ValidateReference(ref)) {
                     invalidCount++;
                     // ForEachReference does not support reference removal mid-iteration;
                     // this is a CommonLibSSE API constraint. The invalid reference is
                     // logged here. If removal is needed it must be deferred to the
                     // main thread via SKSE TaskInterface after iteration completes.
                     spdlog::warn("Invalid reference detected in cell {}: FormID {:08X}",
-                               GetCellName(cell), ref.GetFormID());
+                               GetCellName(cell), ref ? ref->GetFormID() : 0);
                 }
                 return RE::BSContainer::ForEachResult::kContinue;
             });
@@ -405,9 +428,9 @@ namespace CellValidation {
             // as the MoveTo anchor. RE::Actor::MoveTo teleports the actor to the
             // exact world-space position and cell of the target reference.
             RE::TESObjectREFR* anchor = nullptr;
-            safeCell->ForEachReference([&](RE::TESObjectREFR& ref) -> RE::BSContainer::ForEachResult {
-                if (!ref.IsDisabled() && !ref.IsDeleted()) {
-                    anchor = std::addressof(ref);
+            safeCell->ForEachReference([&](RE::TESObjectREFR* ref) -> RE::BSContainer::ForEachResult {
+                if (ref && !ref->IsDisabled() && !ref->IsDeleted()) {
+                    anchor = ref;
                     return RE::BSContainer::ForEachResult::kStop;
                 }
                 return RE::BSContainer::ForEachResult::kContinue;

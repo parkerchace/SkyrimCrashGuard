@@ -1,6 +1,6 @@
 # Skyrim Crash Guard
 
-**Version 2.3.6** - Engine-Level Crash Recovery for Skyrim SE/AE/VR
+**Version 2.4.0** - Engine-Level Crash Recovery for Skyrim AE/VR
 
 An experimental SKSE plugin that intercepts Windows access violations, integer divide-by-zero, and illegal CPU instructions before they can kill the game. When one of these fire, CrashGuard reads the exact CPU instruction that failed and responds with a targeted action: return zero for a bad read, drop a bad write, cancel a null pointer call, or bail out of the crashed function entirely. If it works, the game keeps running and a log entry records what happened and which mod was involved. If it doesn't, the exception passes through to a normal crash.
 
@@ -27,11 +27,11 @@ An experimental SKSE plugin that intercepts Windows access violations, integer d
 |---------|--------|-------|
 | VEH Crash Recovery (6-layer) | ✅ Working | L1–L6 recovery chain + L1b pattern matching |
 | Interior Cell Lighting Detection | ✅ Working | Visentinel shadow frustum null-pointer fix |
-| F11 Diagnostic Overlay (ImGui) | ✅ Working | Real-time metrics, config, recovery history |
+| F11 Diagnostic Overlay (ImGui) | ✅ Working | Real-time metrics, config, and a per-crash recovery view (what faulted, which mods were on the stack, what CrashGuard changed) |
 | Crash Logging & Analysis | ✅ Working | SKSE/Plugins folder, cooperates with CrashLogger |
 | Performance Metrics | ✅ Working | FPS, frame time, memory pressure display |
 | Pattern Learning System | ✅ Working | Caches crash sites for faster future recovery |
-| Address Library (vcpkg) | ✅ Working | CommonLibSSE-NG via vcpkg - no fake stubs |
+| Address Library | ✅ Working | Resolved by CommonLibSSE NG - no fake stubs |
 | Input Conflict Prevention | ⚠️ Partial | F11 menu blocks input fully; camera-zoom prevention in vanilla menus disabled (mod conflict avoidance) |
 | Mesh/Script Validation | ⚠️ Partial | Validation utilities implemented; vtable hooks exist but not auto-integrated into all mesh load paths |
 | Papyrus Validation Framework | ⚠️ Partial | Type-inspection and FunctionRegistry real; SmartHarvest override disabled by default (see config) |
@@ -45,14 +45,16 @@ An experimental SKSE plugin that intercepts Windows access violations, integer d
 
 These features **no longer exist** in the codebase. The `ActorLODManager.h` header, NPC benchmark actions, `[NPCManagement]` and `[ActorLOD]` config sections have all been deleted in v2.3.6.
 
-**Address Library note:** `AddressLibraryStub.h` was also deleted in v2.3.6. That file was an orphaned stub header - never compiled, never included anywhere. v2.3.6 uses **only** the vcpkg-managed address library via CommonLibSSE-NG. No fake stubs are created. `AddressLib::IsValid()` in main.cpp verifies the real library loaded correctly at startup.
+**Address Library note:** `AddressLibraryStub.h` was also deleted in v2.3.6. That file was an orphaned stub header - never compiled, never included anywhere. v2.3.6 onward uses **only** the address library that CommonLibSSE NG loads (`REL::IDDB`). No fake stubs are created. `AddressLib::IsValid()` in main.cpp verifies the real library loaded correctly at startup.
 
 ---
 
 ## Supported Versions
-- Skyrim Special Edition 1.5.97 (pre-AE)
-- Skyrim Anniversary Edition 1.6.x (all versions)
+- Skyrim Anniversary Edition 1.6.x and 1.7.x (built and tested against 1.7.104)
 - Skyrim VR 1.4.15
+
+Skyrim SE 1.5.97 is **no longer supported** as of v2.4.0. The plugin is built with
+CommonLibSSE NG's AE+VR runtime set; a 1.5.97 runtime will be rejected at load.
 
 ---
 
@@ -67,15 +69,14 @@ These features **no longer exist** in the codebase. The `ActorLODManager.h` head
 
 **Game Requirements:**
 - **SKSE64** (Skyrim Script Extender) for your game version:
-  - SE 1.5.97: SKSE64 2.0.20+
-  - AE 1.6.x: SKSE64 2.1.5+ (or latest)
-  - VR 1.4.15: SKSEVR 2.0.12+
+  - AE 1.6.x / 1.7.x: SKSE64 2.3.1 (or later)
+  - VR 1.4.15: SKSEVR 2.0.12
 - **Address Library for SKSE Plugins** (automatically handles version differences)
 
 ### Installation Steps
 
 **Manual Installation:**
-1. Install SKSE64 for your runtime (SE/AE/VR).
+1. Install SKSE64 (AE) or SKSEVR (VR) for your runtime.
 2. Extract the mod archive.
 3. Copy the `SKSE` folder to your Skyrim `Data` folder.
    - Final path: `Data/SKSE/Plugins/SkyrimCrashGuard.dll`
@@ -411,7 +412,7 @@ When reporting issues, include:
 1. **SkyrimCrashGuard.log** (primary log)
 2. **crash-*.log** (CrashLogger, if applicable)
 3. **Load order** (modlist.txt or MO2 export)
-4. **Game version** (SE 1.5.97, AE 1.6.x, VR 1.4.15)
+4. **Game version** (AE 1.6.x/1.7.x, VR 1.4.15)
 5. **SKSE version**
 6. **Steps to reproduce** (if possible)
 
@@ -502,19 +503,40 @@ cmake --build build --config Release
 ```
 
 Notes:
-- The project uses CommonLibSSE-NG for a single-DLL multi-runtime build (SE/AE/VR).
-- vcpkg dependencies: spdlog, fmt, zydis, nlohmann_json, toml11, directxtk, imgui.
+- CommonLibSSE NG (alandtse/CommonLibSSE-NG, branch `ng`, tag v9.0.0) is fetched
+  automatically by CMake via `FetchContent` into `build/_deps/commonlibsse-src` and
+  compiled in-tree - there is no vcpkg port for it. The first configure clones it
+  along with its `extern/openvr` submodule, so the initial build is slow.
+- Runtime set: `ENABLE_SKYRIM_SE=OFF`, `ENABLE_SKYRIM_AE=ON`, `ENABLE_SKYRIM_VR=ON`,
+  which makes CommonLibSSE define `SKYRIM_CROSS_VR` - flat-vs-VR struct differences
+  are resolved at runtime via `GetRuntimeData()`/`GetVRRuntimeData()` and
+  `REL::VariantID`, and `REL::Module::IsVR()` selects behaviour.
+- vcpkg dependencies: spdlog, fmt, zydis, nlohmann-json, toml11, directxtk,
+  directxmath, rapidcsv, imgui (the last four are needed by CommonLibSSE NG).
 - See `CMakeLists.txt` and `docs/README_FULL.md` for details.
 
 ---
 
 ## Developer Notes & Credits
 
-- Multi-runtime support via CommonLibSSE-NG's `add_commonlibsse_plugin()` helper.
+- Multi-runtime support via CommonLibSSE NG's `add_commonlibsse_plugin()` helper.
 - Per-subsystem logging toggles reduce log noise by default.
 - Zydis x86-64 decoder used for instruction-level crash analysis (L1b, L3, L4).
 
 See `docs/CREDITS.md` for full attributions and licenses.
+
+---
+
+## License
+
+Skyrim Crash Guard is licensed under the **GNU General Public License v3.0 or later**
+(see [LICENSE](LICENSE)).
+
+Versions up to and including 2.3.6 were MIT-licensed. v2.4.0 links
+[CommonLibSSE NG](https://github.com/alandtse/CommonLibSSE-NG) (GPL-3.0-or-later)
+statically, which makes the resulting DLL a combined work that must be distributed
+under the GPL. CommonLibSSE NG's Modding Exception covers linking against Skyrim,
+SKSE and the GPU SDKs - it does not cover plugin code such as this.
 
 ---
 

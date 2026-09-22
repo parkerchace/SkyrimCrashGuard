@@ -7,13 +7,14 @@ This project would not be possible without the incredible work of the Skyrim mod
 
 ### Core Framework Dependencies
 
-#### CommonLibSSE-NG
-- **Purpose**: Modern C++ library for SKSE plugin development with multi-runtime support (SE/AE/VR)
-- **Version**: 3.6.0
-- **License**: MIT License
-- **Repository**: https://github.com/CharmedBaryon/CommonLibSSE-NG
-- **Lineage**: Forked from [powerof3's CommonLibSSE](https://github.com/powerof3/CommonLibSSE), originally based on Ryan-rsm-McKenzie's CommonLibSSE
-- **Description**: Provides game introspection, memory manipulation, and SKSE integration for Skyrim SE/AE/VR
+#### CommonLibSSE NG
+- **Purpose**: Modern C++ library for SKSE plugin development with multi-runtime support (AE/VR)
+- **Version**: v9.0.0 (branch `ng`)
+- **License**: GPL-3.0-or-later WITH Modding Exception AND GPL-3.0 Linking Exception
+- **Repository**: https://github.com/alandtse/CommonLibSSE-NG
+- **Lineage**: Forked from [CharmedBaryon's CommonLibSSE-NG](https://github.com/CharmedBaryon/CommonLibSSE-NG) (unmaintained since September 2024), which forked [powerof3's CommonLibSSE](https://github.com/powerof3/CommonLibSSE), originally based on Ryan-rsm-McKenzie's CommonLibSSE
+- **Description**: Provides game introspection, memory manipulation, and SKSE integration for Skyrim AE/VR
+- **Note**: Skyrim Crash Guard links this library statically, which makes the resulting DLL a combined work. That is why Crash Guard is GPL-3.0-or-later from v2.4.0 on. The Modding Exception covers linking against Skyrim, SKSE and the GPU SDKs — it does not cover plugin code.
 
 #### SKSE64 (Skyrim Script Extender)
 - **Purpose**: Script extender that enables advanced plugin functionality
@@ -162,8 +163,8 @@ Special recognition for the open-source tools that made development possible:
 
 ## License Summary
 
-All third-party dependencies use permissive open-source licenses (primarily MIT) that allow commercial and non-commercial use, modification, and distribution. Full license texts for each dependency can be found in their respective repositories.
+Most third-party dependencies use permissive open-source licenses (primarily MIT). CommonLibSSE NG is GPL-3.0-or-later with the Modding and Linking Exceptions described above. Full license texts for each dependency can be found in their respective repositories.
 
-SkyrimCrashGuard itself is released under the MIT License (see LICENSE file in root directory).
+SkyrimCrashGuard is released under the **GNU General Public License v3.0 or later** (see LICENSE file in root directory). Releases up to and including 2.3.6 were MIT-licensed; the change to GPL in 2.4.0 follows from linking CommonLibSSE NG.
 
 ```

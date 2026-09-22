@@ -1,8 +1,20 @@
-// Copyright (C) 2026 Parker Chace
-// SPDX-License-Identifier: MIT
+// Copyright (C) 2024-2026 Parker Chace
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
-// This file is part of Skyrim CrashGuard.
-// Licensed under the MIT License. See LICENSE file in the project root for details.
+// This file is part of Skyrim Crash Guard.
+//
+// Skyrim Crash Guard is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
+//
+// Skyrim Crash Guard is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+// details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
 
 // VEH.cpp
 // Vectored Exception Handler with 6-Level Recovery Chain
@@ -209,6 +221,17 @@ struct KnownSite {
 // Feel free to add rows as new crash logs come in.
 // offset / instrLen / destReg / description / bailout
 static std::vector<KnownSite> s_knownSites;
+
+// The built-in flat-runtime (non-VR) sites below are raw module offsets that were
+// disassembled on Skyrim AE 1.6.1170 — verified: offset +0D1BF70 is address-library
+// ID 70251 in versionlib-1-6-1170-0.bin, which is what the code comments there call
+// "function 70251". Raw offsets do not survive a game update: on 1.7.104 the same
+// ID lives at +0EE0930, so registering them would point canned register/skip repairs
+// at unrelated instructions. They are therefore only armed when the running
+// executable is the build they came from; every other runtime relies on the L1b
+// generic pattern matcher, which covers the same crash shapes.
+static const REL::Version kFlatSiteBuild{ 1, 6, 1170, 0 };
+static bool               s_flatSitesArmed = false;
 
 // ── Known crash sites in mod DLLs ───────────────────────────────────
 // These are indexed by DLL name (case-insensitive) + offset.
@@ -420,6 +443,11 @@ static constexpr int        MAX_DEPTH = 3;
 // module (IsSelfAddr == true) and bypasses cascade / cooldown gates.
 // Enabled only during the internal diagnostic test suite.
 static thread_local bool                  t_testMode  = false;
+// Labelling only: set while CrashGuard's own test suite runs a fault, including
+// the stub-page tiers that deliberately leave t_testMode off so they exercise the
+// real recovery rules. Recoveries recorded inside this scope are reported as
+// self-tests rather than as crashes coming from the game.
+static thread_local int                   t_selfTestDepth = 0;
 static thread_local CrashGuard::LayerTrace t_lastTrace;
 
 // Recovery statistics
@@ -703,7 +731,7 @@ void ShowSaveLoadRecoverySummary() {
     
     // Show in-game toast notification
     std::string toastMsg = fmt::format("CrashGuard: {} issues fixed during load. Check mod dependencies.", total);
-    RE::DebugNotification(toastMsg.c_str());
+    RE::SendHUDMessage::ShowHUDMessage(toastMsg.c_str());
 }
 
 // Reset save load tracking when entering LoadingSave phase
@@ -944,6 +972,8 @@ static uint32_t TrackFunctionHit(uintptr_t rip) {
 // These crash frequently during save load with SkyrimSoulsRE and need elevated
 // cascade limits even if not at an exact known site offset.
 static bool IsInMoonOrSkyFunction(uintptr_t rip) {
+    // Same provenance as the built-in flat-runtime sites: AE 1.6.1170 offsets.
+    if (!s_flatSitesArmed) return false;
     if (!IsGameAddr(rip)) return false;
     uintptr_t off = rip - s_gameBase;
     // Moon::UpdateImpl function spans roughly +0D1BF70 to +0D1BFFF
@@ -2071,6 +2101,60 @@ static int ReadRawStackPointers_SEH(const uintptr_t* sp, uintptr_t* out, int cou
     return n;
 }
 
+// Names the mod DLLs that appear as return addresses in the top of the stack.
+//
+// The faulting module alone is often uninformative: most crashes fault inside
+// SkyrimSE.exe / SkyrimVR.exe while running on data some mod handed it. The
+// nearest mod DLL below the fault is the best available clue about which mod is
+// involved, and it is what the F11 recovery view shows under "Modules on the
+// call stack".
+//
+// Best effort by design: this reads raw stack slots rather than unwinding (a real
+// StackWalk64 inside the exception path risks a recursive AV), so a slot can hold
+// a stale return address from an earlier call. Everything it finds is presented as
+// "involved", never as a verdict. Game, system and CrashGuard frames are dropped,
+// so an empty result means "nothing but Skyrim's own code was on the stack".
+static std::vector<std::string> CollectCallerModules(uintptr_t rsp, const std::string& faultingModule) {
+    std::vector<std::string> mods;
+    if (!rsp) {
+        return mods;
+    }
+
+    constexpr int kSlots = 24;      // ~200 bytes of stack: deep enough for a few frames
+    constexpr size_t kMaxMods = 4;  // enough to spot a culprit, short enough to read
+    constexpr int kMaxLookups = 8;  // budget on GetModuleHandleEx calls (see below)
+
+    uintptr_t raw[kSlots] = {};
+    const int n = ReadRawStackPointers_SEH(reinterpret_cast<const uintptr_t*>(rsp), raw, kSlots);
+
+    // IsSystemDLL and ModName both go through the loader (GetModuleHandleEx), which
+    // this handler already does for the faulting address. The cheap range and page
+    // checks run first so only plausible return addresses cost a lookup, and the
+    // budget caps how many a single recovery can spend.
+    int lookups = 0;
+
+    for (int i = 0; i < n && mods.size() < kMaxMods && lookups < kMaxLookups; ++i) {
+        const uintptr_t addr = raw[i];
+        if (addr <= 0x10000)                       continue;  // null page / small integers
+        if (IsSelfAddr(addr))                      continue;  // CrashGuard's own frames
+        if (IsGameAddr(addr))                      continue;  // the game itself names no mod
+        if (!IsExec(reinterpret_cast<void*>(addr))) continue;  // data, not a return address
+
+        ++lookups;
+        if (IsSystemDLL(addr)) continue;  // ntdll, CRT, GPU drivers, crash loggers
+
+        std::string name = ModName(addr);
+        if (name == "unknown" || name == faultingModule) {
+            continue;
+        }
+        if (std::find(mods.begin(), mods.end(), name) == mods.end()) {
+            mods.push_back(std::move(name));
+        }
+    }
+
+    return mods;
+}
+
 static void IngestCrashLoggerLogs() {
     auto log = spdlog::default_logger();
 
@@ -2284,10 +2368,20 @@ bool VEHExceptionHandler::Initialize() {
         
         if (log) log->info("[VEH] Registered {} VR-specific game crash sites (Moon/Water covered by L1b)", 6);
     } else {
-        // SE/AE specific crash sites
+        // Flat-runtime (AE) crash sites, disassembled on 1.6.1170 — see the note on
+        // s_flatSitesArmed. Skipped entirely on any other build, because a raw offset
+        // from one executable names a different instruction in the next one.
+        s_flatSitesArmed = (REL::Module::get().version() == kFlatSiteBuild);
+        if (!s_flatSitesArmed) {
+            if (log) {
+                log->info("[VEH] Built-in flat-runtime crash sites skipped: they were disassembled "
+                          "on AE {} and this runtime is {}. L1b pattern matching still covers these "
+                          "crash shapes; add version-correct entries via a crash-site JSON if wanted.",
+                          kFlatSiteBuild.string("."), REL::Module::get().version().string("."));
+            }
+        } else {
         // These are common crash locations found in crash logger reports
-        // Using relative offsets from module base for version independence
-        
+
         // BGSImpactManager::PlayImpactEffect - common on projectile impacts
         // SE: ~0x5A8E10, AE: varies
         // Crash when impact data is null during effect spawn
@@ -2368,7 +2462,9 @@ bool VEHExceptionHandler::Initialize() {
         // Use BAILOUT to return from function - skipping would leave corrupted state.
         s_knownSites.push_back({ 0x05FA08F, 4, kRSI, "SKSE plugin init InstalledContent null check", true });
         
-        if (log) log->info("[VEH] Registered {} SE/AE-specific crash sites (including Moon/Sky rendering)", s_knownSites.size());
+        if (log) log->info("[VEH] Registered {} flat-runtime crash sites for AE {} (including Moon/Sky rendering)",
+                           s_knownSites.size(), kFlatSiteBuild.string("."));
+        }
     }
 
     // ── Populate known crash sites for game executable ──
@@ -2377,12 +2473,16 @@ bool VEHExceptionHandler::Initialize() {
     // Recovery: zero RAX (null vtable call → skip), advance RIP past the call
     // The caller at +0C56D8F checks the next node and continues the loop
     // NOTE: instrLen = 3 (FF 50 28), not 2
-    s_knownSites.push_back({ 0x0D032C6, 3, kRAX, "NiParticleSystem vtable corruption (call [rax+0x28])", false });
-    
-    // ShadowSceneNode related crash (BSParticleSystemManager update loop)
-    // Common in particle-heavy scenes with ShadowSceneNode parent chain
-    // call [rax+0x28] variant in particle controller update
-    s_knownSites.push_back({ 0x0C56D8F, 4, kNONE, "BSParticleSystemManager controller update null", false });
+    // Same provenance (and therefore the same version gate) as the flat-runtime sites
+    // above: these are SkyrimSE.exe offsets, so they never applied to SkyrimVR.exe either.
+    if (s_flatSitesArmed) {
+        s_knownSites.push_back({ 0x0D032C6, 3, kRAX, "NiParticleSystem vtable corruption (call [rax+0x28])", false });
+
+        // ShadowSceneNode related crash (BSParticleSystemManager update loop)
+        // Common in particle-heavy scenes with ShadowSceneNode parent chain
+        // call [rax+0x28] variant in particle controller update
+        s_knownSites.push_back({ 0x0C56D8F, 4, kNONE, "BSParticleSystemManager controller update null", false });
+    }
 
     // ── Populate known crash sites for mod DLLs ──
     // skee64.dll (RaceMenu): mov rdx, [rcx+0x20] with RCX=0
@@ -2554,11 +2654,25 @@ VEHExceptionHandler::LayerStats VEHExceptionHandler::GetLayerStats() {
 
 void VEHExceptionHandler::EnableThreadTestMode() {
     t_testMode = true;
+    ++t_selfTestDepth;
     t_lastTrace = CrashGuard::LayerTrace{};  // clear previous trace
 }
 
 void VEHExceptionHandler::DisableThreadTestMode() {
     t_testMode = false;
+    if (t_selfTestDepth > 0) {
+        --t_selfTestDepth;
+    }
+}
+
+void VEHExceptionHandler::BeginSelfTestScope() {
+    ++t_selfTestDepth;
+}
+
+void VEHExceptionHandler::EndSelfTestScope() {
+    if (t_selfTestDepth > 0) {
+        --t_selfTestDepth;
+    }
 }
 
 CrashGuard::LayerTrace VEHExceptionHandler::GetLastTestTrace() {
@@ -3502,15 +3616,24 @@ static LONG CALLBACK OrchestratedRecovery(PEXCEPTION_POINTERS info) {
                 bool wasWriteSkip = (recoveryMethod && std::string(recoveryMethod) == "skipped write");
                 RecordRecovery(wasWriteSkip);
                 
+                // Faults raised by CrashGuard's own test suite are not game crashes: the
+                // inline kernels fault inside this DLL, and the stub tiers fault in an
+                // allocated page belonging to no module (which is what showed up in the
+                // recovery list as "unknown"). They are labelled so the UI can report them
+                // as tests, and they stay out of the player-facing counters below.
+                const bool selfTest = (t_selfTestDepth > 0) || IsSelfAddr(rip);
+
                 // ── In-game notification (minimal spam) ──
                 // Only notify on first issue and significant milestones
                 static std::atomic<uint32_t> s_notifyCount{0};
-                uint32_t count = s_notifyCount.fetch_add(1, std::memory_order_relaxed) + 1;
-                if (count == 1) {
-                    RE::DebugNotification("CrashGuard: Preventing issues during load...");
-                } else if (count == 10 || count == 50 || count == 100) {
-                    std::string msg = fmt::format("CrashGuard: {} issues prevented", count);
-                    RE::DebugNotification(msg.c_str());
+                if (!selfTest) {
+                    uint32_t count = s_notifyCount.fetch_add(1, std::memory_order_relaxed) + 1;
+                    if (count == 1) {
+                        RE::SendHUDMessage::ShowHUDMessage("CrashGuard: Preventing issues during load...");
+                    } else if (count == 10 || count == 50 || count == 100) {
+                        std::string msg = fmt::format("CrashGuard: {} issues prevented", count);
+                        RE::SendHUDMessage::ShowHUDMessage(msg.c_str());
+                    }
                 }
                 // Also record recovery in F11 history and stats so the UI reflects prevented crashes
                 try {
@@ -3543,17 +3666,26 @@ static LONG CALLBACK OrchestratedRecovery(PEXCEPTION_POINTERS info) {
                     std::string modNameStr   = ModName(rip);
                     std::string crashAddrStr = fmt::format("{}+{:#X}", modNameStr, ModOff(rip));
 
+                    // Name the mod DLLs on the stack below the fault. Without this the
+                    // F11 view can only name the module that faulted, which for most
+                    // crashes is the game executable. Pointless for a self-test.
+                    std::vector<std::string> callerMods;
+                    if (!selfTest) {
+                        callerMods = CollectCallerModules(ctx->Rsp, modNameStr);
+                    }
+
                     RecoveryNotifications::GetSingleton().AddRecovery(
                         severityStr,
                         rootCause,
                         std::string("AutomaticRecovery"),
-                        {}, {}, true,
+                        {}, callerMods, true,
                         lid, crashAddrStr,
                         modNameStr,
                         capturedInstrStr,
                         (uint64_t)accessAddr,
                         (int)accessType,
-                        capturedRegName
+                        capturedRegName,
+                        selfTest
                     );
                 } catch (...) {}
 

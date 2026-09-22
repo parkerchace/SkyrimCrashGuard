@@ -1,8 +1,20 @@
-﻿// Copyright (C) 2026 Parker Chace
-// SPDX-License-Identifier: MIT
+﻿// Copyright (C) 2024-2026 Parker Chace
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
-// This file is part of Skyrim CrashGuard.
-// Licensed under the MIT License. See LICENSE file in the project root for details.
+// This file is part of Skyrim Crash Guard.
+//
+// Skyrim Crash Guard is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
+//
+// Skyrim Crash Guard is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+// details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "RecoveryNotifications.h"
 #include "ImGuiConfigMenu.h"
@@ -27,7 +39,8 @@ namespace CrashGuard {
         std::string decodedInstruction,
         uint64_t    accessAddress,
         int         accessType,
-        std::string affectedRegister
+        std::string affectedRegister,
+        bool        selfTest
     ) {
         std::lock_guard<std::mutex> lock(m_mutex);
         
@@ -42,7 +55,9 @@ namespace CrashGuard {
         // Create toast notification
         RecoveryToast toast;
         toast.severity           = severity;
-        toast.summary            = CreateSummary(rootCause, strategy);
+        toast.summary            = selfTest
+                                     ? ("Self-test: " + CreateSummary(rootCause, strategy))
+                                     : CreateSummary(rootCause, strategy);
         toast.strategy           = strategy;
         toast.timestamp          = std::chrono::steady_clock::now();
         toast.visible            = true;
@@ -85,6 +100,7 @@ namespace CrashGuard {
         entry.accessAddress      = accessAddress;
         entry.accessType         = accessType;
         entry.affectedRegister   = affectedRegister;
+        entry.selfTest           = selfTest;
         
         // Add to history (limit to MAX_HISTORY)
         m_history.insert(m_history.begin(), entry);

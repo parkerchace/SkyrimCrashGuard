@@ -1,29 +1,32 @@
 {
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
   "name": "skyrim-crash-guard",
-  "version-semver": "2.1.0",
-  "description": "Engine-level crash recovery system for Skyrim SE/AE using SKSE and CommonLibSSE.",
+  "version-semver": "2.4.0",
+  "description": "Engine-level crash recovery system for Skyrim AE/VR using SKSE and CommonLibSSE NG.",
+  "license": "GPL-3.0-or-later",
   "supports": "windows & x64",
   "dependencies": [
-    "commonlibsse-ng",
-    "spdlog",
-    "fmt",
-    "zydis",
-    "nlohmann-json",
-    "toml11",
-    "catch2",
-    "rapidcheck",
+    "directxmath",
     "directxtk",
+    "fmt",
+    "nlohmann-json",
+    "rapidcsv",
+    "spdlog",
+    "toml11",
+    "zydis",
     {
       "name": "imgui",
       "features": ["dx11-binding", "win32-binding"]
     }
   ],
-  "builtin-baseline": "d1e11918f5c88c1dd364b93e1452fea69bacd479",
-  "overrides": [
-    {
-      "name": "commonlibsse-ng",
-      "version": "3.6.0"
+  "features": {
+    "tests": {
+      "description": "Dependencies for the Crash Guard unit tests.",
+      "dependencies": [
+        "catch2",
+        "rapidcheck"
+      ]
     }
-  ]
+  },
+  "builtin-baseline": "6d7bf7ef2193e2d1c5798a5ff8811d533104c861"
 }

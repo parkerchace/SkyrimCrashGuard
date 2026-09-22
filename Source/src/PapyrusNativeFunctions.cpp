@@ -1,8 +1,20 @@
-﻿// Copyright (C) 2026 Parker Chace
-// SPDX-License-Identifier: MIT
+﻿// Copyright (C) 2024-2026 Parker Chace
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
-// This file is part of Skyrim CrashGuard.
-// Licensed under the MIT License. See LICENSE file in the project root for details.
+// This file is part of Skyrim Crash Guard.
+//
+// Skyrim Crash Guard is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
+//
+// Skyrim Crash Guard is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+// details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "Config.h"
 #include "PapyrusNativeFunctionHook.h"
@@ -15,7 +27,7 @@ namespace PapyrusNatives {
 
 // Menu and Status
 void ShowMenu(RE::StaticFunctionTag*) {
-    RE::DebugNotification("Edit SkyrimCrashGuard.toml or use MCM menu");
+    RE::SendHUDMessage::ShowHUDMessage("Edit SkyrimCrashGuard.toml or use MCM menu");
     spdlog::info("ShowMenu called - directing user to TOML/MCM");
 }
 
@@ -33,7 +45,7 @@ void ShowStatus(RE::StaticFunctionTag*) {
     spdlog::info("Notifications: {}", config.showNotifications);
     spdlog::info("========================");
     
-    RE::DebugNotification("CrashGuard status logged - check SKSE log");
+    RE::SendHUDMessage::ShowHUDMessage("CrashGuard status logged - check SKSE log");
 }
 
 void ReloadConfig(RE::StaticFunctionTag*) {
@@ -41,7 +53,7 @@ void ReloadConfig(RE::StaticFunctionTag*) {
     Config::Load(configPath);
     
     spdlog::info("Configuration reloaded from TOML");
-    RE::DebugNotification("CrashGuard config reloaded");
+    RE::SendHUDMessage::ShowHUDMessage("CrashGuard config reloaded");
 }
 
 void ResetToDefaults(RE::StaticFunctionTag*) {
@@ -67,7 +79,7 @@ void ResetToDefaults(RE::StaticFunctionTag*) {
     Config::Save(configPath);
     
     spdlog::info("All settings reset to defaults");
-    RE::DebugNotification("CrashGuard settings reset to defaults");
+    RE::SendHUDMessage::ShowHUDMessage("CrashGuard settings reset to defaults");
 }
 
 // Get/Set Enabled
@@ -83,7 +95,7 @@ void SetEnabled(RE::StaticFunctionTag*, bool value) {
     Config::Save(configPath);
     
     spdlog::info("CrashGuard enabled: {}", value);
-    RE::DebugNotification(value ? "CrashGuard enabled" : "CrashGuard disabled");
+    RE::SendHUDMessage::ShowHUDMessage(value ? "CrashGuard enabled" : "CrashGuard disabled");
 }
 
 // Get/Set Mesh Validation
@@ -99,7 +111,7 @@ void SetMeshValidation(RE::StaticFunctionTag*, bool value) {
     Config::Save(configPath);
     
     spdlog::info("Mesh validation: {}", value);
-    RE::DebugNotification(value ? "Mesh validation enabled" : "Mesh validation disabled");
+    RE::SendHUDMessage::ShowHUDMessage(value ? "Mesh validation enabled" : "Mesh validation disabled");
 }
 
 // Get/Set Animation Validation
@@ -115,7 +127,7 @@ void SetAnimationValidation(RE::StaticFunctionTag*, bool value) {
     Config::Save(configPath);
     
     spdlog::info("Animation validation: {}", value);
-    RE::DebugNotification(value ? "Animation validation enabled" : "Animation validation disabled");
+    RE::SendHUDMessage::ShowHUDMessage(value ? "Animation validation enabled" : "Animation validation disabled");
 }
 
 // Get/Set Script Monitoring
@@ -131,7 +143,7 @@ void SetScriptMonitoring(RE::StaticFunctionTag*, bool value) {
     Config::Save(configPath);
     
     spdlog::info("Script monitoring: {}", value);
-    RE::DebugNotification(value ? "Script monitoring enabled" : "Script monitoring disabled");
+    RE::SendHUDMessage::ShowHUDMessage(value ? "Script monitoring enabled" : "Script monitoring disabled");
 }
 
 // Get/Set Cell Validation
@@ -147,7 +159,7 @@ void SetCellValidation(RE::StaticFunctionTag*, bool value) {
     Config::Save(configPath);
     
     spdlog::info("Cell validation: {}", value);
-    RE::DebugNotification(value ? "Cell validation enabled" : "Cell validation disabled");
+    RE::SendHUDMessage::ShowHUDMessage(value ? "Cell validation enabled" : "Cell validation disabled");
 }
 
 // Get/Set Pattern Learning
@@ -163,7 +175,7 @@ void SetPatternLearning(RE::StaticFunctionTag*, bool value) {
     Config::Save(configPath);
     
     spdlog::info("Pattern learning: {}", value);
-    RE::DebugNotification(value ? "Pattern learning enabled" : "Pattern learning disabled");
+    RE::SendHUDMessage::ShowHUDMessage(value ? "Pattern learning enabled" : "Pattern learning disabled");
 }
 
 // Get/Set Notifications
@@ -179,7 +191,7 @@ void SetNotifications(RE::StaticFunctionTag*, bool value) {
     Config::Save(configPath);
     
     spdlog::info("Notifications: {}", value);
-    RE::DebugNotification(value ? "Notifications enabled" : "Notifications disabled");
+    RE::SendHUDMessage::ShowHUDMessage(value ? "Notifications enabled" : "Notifications disabled");
 }
 
 // Register all functions with Papyrus

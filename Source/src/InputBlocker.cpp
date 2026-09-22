@@ -1,8 +1,20 @@
-﻿// Copyright (C) 2026 Parker Chace
-// SPDX-License-Identifier: MIT
+﻿// Copyright (C) 2024-2026 Parker Chace
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
-// This file is part of Skyrim CrashGuard.
-// Licensed under the MIT License. See LICENSE file in the project root for details.
+// This file is part of Skyrim Crash Guard.
+//
+// Skyrim Crash Guard is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
+//
+// Skyrim Crash Guard is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+// details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "InputBlocker.h"
 #include <SKSE/SKSE.h>
@@ -53,23 +65,27 @@ namespace CrashGuard {
                 if (blocked) {
                     // Disable input processing for all menus
                     // This prevents gamepad from controlling game menus while F11 menu is open
-                    // CommonLibSSE-NG: Direct member access (no GetRuntimeData())
-                    controlMap->ignoreKeyboardMouse = true;
-                    controlMap->ignoreActivateDisabledEvents = true;
+                    // CommonLibSSE NG (AE+VR): VR shifts these members, so go through GetRuntimeData()
+                    auto& controls = controlMap->GetRuntimeData();
+                    controls.ignoreKeyboardMouse = true;
+                    controls.ignoreActivateDisabledEvents = true;
                     
                     // Aggressively disable ALL control types to prevent gamepad from controlling game
                     using UEFlag = RE::UserEvents::USER_EVENT_FLAG;
-                    controlMap->ToggleControls(UEFlag::kAll, false);
+                    // Third argument is CommonLibSSE NG's storeState: false leaves the game's
+                    // stored-control snapshot alone, which is what the two-argument call did.
+                    controlMap->ToggleControls(UEFlag::kAll, false, false);
                     spdlog::debug("[InputBlocker] All controls blocked for F11 menu");
                 } else {
                     // Re-enable input processing
-                    // CommonLibSSE-NG: Direct member access (no GetRuntimeData())
-                    controlMap->ignoreKeyboardMouse = false;
-                    controlMap->ignoreActivateDisabledEvents = false;
+                    // CommonLibSSE NG (AE+VR): VR shifts these members, so go through GetRuntimeData()
+                    auto& controls = controlMap->GetRuntimeData();
+                    controls.ignoreKeyboardMouse = false;
+                    controls.ignoreActivateDisabledEvents = false;
                     
                     // Re-enable all controls
                     using UEFlag = RE::UserEvents::USER_EVENT_FLAG;
-                    controlMap->ToggleControls(UEFlag::kAll, true);
+                    controlMap->ToggleControls(UEFlag::kAll, true, false);
                     spdlog::debug("[InputBlocker] All controls unblocked");
                 }
             } catch (const std::exception& e) {
@@ -141,11 +157,10 @@ namespace CrashGuard {
         try {
             if (blocked) {
                 // Disable activate events which includes the wait/tween menu
-                // CommonLibSSE-NG: Direct member access (no GetRuntimeData())
-                controlMap->ignoreActivateDisabledEvents = true;
+                controlMap->GetRuntimeData().ignoreActivateDisabledEvents = true;
                 spdlog::debug("[InputBlocker] Wait/tween menu blocked via ignoreActivateDisabledEvents");
             } else {
-                controlMap->ignoreActivateDisabledEvents = false;
+                controlMap->GetRuntimeData().ignoreActivateDisabledEvents = false;
                 spdlog::debug("[InputBlocker] Wait/tween menu unblocked");
             }
         } catch (const std::exception& e) {

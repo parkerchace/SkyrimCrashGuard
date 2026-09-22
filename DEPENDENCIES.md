@@ -10,9 +10,10 @@ These dependencies must be installed by end users to run SkyrimCrashGuard.
 
 | Dependency | Version | Purpose | License | Documentation |
 |------------|---------|---------|---------|---------------|
-| **SKSE64** | 2.0.20+ (SE)<br>2.1.5+ (AE) | Script extender providing plugin API and advanced scripting capabilities | Custom OSS | [skse.silverlock.org](https://skse.silverlock.org/) |
-| **SKSEVR** | 2.0.12+ (VR) | VR version of SKSE for SkyrimVR | Custom OSS | [skse.silverlock.org](https://skse.silverlock.org/) |
-| **Address Library for SKSE** | Latest | Version-independent address resolution for game functions across SE/AE/VR | MIT | [GitHub](https://github.com/meh321/AddressLibraryDatabase) |
+| **SKSE64** | 2.3.1 (AE 1.6.x/1.7.x) | Script extender providing plugin API and advanced scripting capabilities | Custom OSS | [skse.silverlock.org](https://skse.silverlock.org/) |
+| **SKSEVR** | 2.0.12 (VR 1.4.15) | VR version of SKSE for SkyrimVR | Custom OSS | [skse.silverlock.org](https://skse.silverlock.org/) |
+| **Address Library for SKSE** | Latest (format 5 for 1.7.x) | Version-independent address resolution for game functions | MIT | [GitHub](https://github.com/meh321/AddressLibraryDatabase) |
+| **VR Address Library** | Latest | Address Library data for Skyrim VR 1.4.15 (`version-1-4-15-0.csv`) | MIT | [Nexus](https://www.nexusmods.com/skyrimspecialedition/mods/58101) |
 
 ### System Requirements
 
@@ -26,9 +27,9 @@ These dependencies must be installed by end users to run SkyrimCrashGuard.
 
 | Game Version | Executable | Version | Status |
 |--------------|------------|---------|--------|
-| **Skyrim Special Edition** | SkyrimSE.exe | 1.5.97 (1.5.x) | ✓ Supported |
-| **Skyrim Anniversary Edition** | SkyrimSE.exe | 1.6.x (all versions) | ✓ Supported |
+| **Skyrim Anniversary Edition** | SkyrimSE.exe | 1.6.x / 1.7.x (built against 1.7.104) | ✓ Supported |
 | **Skyrim VR** | SkyrimVR.exe | 1.4.15 | ✓ Supported |
+| **Skyrim Special Edition** | SkyrimSE.exe | 1.5.97 | ✗ Dropped in v2.4.0 |
 
 ---
 
@@ -50,20 +51,35 @@ All C++ libraries are managed via vcpkg manifest mode (`vcpkg.json`) and automat
 
 | Library | Version | Purpose | License | Documentation |
 |---------|---------|---------|---------|---------------|
-| **CommonLibSSE-NG** | 3.6.0 | Modern C++ framework for SKSE plugin development with multi-runtime support (SE/AE/VR) | MIT | [GitHub](https://github.com/CharmedBaryon/CommonLibSSE-NG) |
 | **spdlog** | 1.17.0+ | Fast, thread-safe C++ logging library for diagnostic output | MIT | [GitHub](https://github.com/gabime/spdlog) |
 | **fmt** | 12.1.0+ | Modern C++ string formatting library (faster and safer than printf) | MIT | [GitHub](https://github.com/fmtlib/fmt) |
 | **Zydis** | 4.1.1+ | x86/x64 disassembler for instruction-level crash analysis and pattern matching | MIT | [GitHub](https://github.com/zyantific/zydis) |
 | **nlohmann-json** | 3.12.0+ | Modern C++ JSON library for crash reports and configuration data | MIT | [GitHub](https://github.com/nlohmann/json) |
 | **toml11** | 4.4.0+ | TOML parser for configuration file parsing (SkyrimCrashGuard.toml) | MIT | [GitHub](https://github.com/ToruNiina/toml11) |
-| **DirectXTK** | 2025-10-27+ | DirectX Tool Kit providing graphics utilities for DirectX 11 integration | MIT | [GitHub](https://github.com/microsoft/DirectXTK) |
+| **DirectXTK** | 2025-10-27+ | DirectX Tool Kit providing graphics utilities for DirectX 11 integration (also required by CommonLibSSE NG) | MIT | [GitHub](https://github.com/microsoft/DirectXTK) |
+| **DirectXMath** | 2025-04-03+ | SIMD math types required by CommonLibSSE NG | MIT | [GitHub](https://github.com/microsoft/DirectXMath) |
+| **rapidcsv** | 8.90+ | CSV reader required by CommonLibSSE NG (VR address library) | BSD 3-Clause | [GitHub](https://github.com/d99kris/rapidcsv) |
 | **Dear ImGui** | 1.91.9+ | Immediate mode GUI library for in-game overlay and configuration menu | MIT | [GitHub](https://github.com/ocornut/imgui) |
 
 **ImGui Features:** `dx11-binding`, `win32-binding` (required for DirectX 11 integration)
 
+### CommonLibSSE NG (not a vcpkg dependency)
+
+| Library | Version | Purpose | License | Documentation |
+|---------|---------|---------|---------|---------------|
+| **CommonLibSSE NG** | v9.0.0 (branch `ng`) | Modern C++ framework for SKSE plugin development with multi-runtime support | **GPL-3.0-or-later** WITH Modding Exception | [GitHub](https://github.com/alandtse/CommonLibSSE-NG) |
+
+CommonLibSSE NG is fetched by CMake (`FetchContent`, pinned to tag `v9.0.0`) into
+`build/_deps/commonlibsse-src` and compiled in-tree, together with its
+`extern/openvr` submodule. The unmaintained CharmedBaryon fork and the
+`vcpkg-colorglass` registry that served it are no longer used.
+
+Because CommonLibSSE NG is GPL-3.0-or-later and is linked statically, Skyrim Crash
+Guard itself is GPL-3.0-or-later as of v2.4.0.
+
 ### Testing Libraries (Optional)
 
-These libraries are only required when building with `BUILD_TESTS=ON`. They are NOT included in release builds.
+These libraries are only required when building with `CRASHGUARD_BUILD_TESTS=ON`. They are NOT included in release builds.
 
 | Library | Version | Purpose | License | Documentation |
 |---------|---------|---------|---------|---------------|
@@ -102,13 +118,13 @@ This triplet configuration:
 
 ### vcpkg Baseline
 
-**Baseline Commit:** `d1e11918f5c88c1dd364b93e1452fea69bacd479`
+**Baseline Commit:** `6d7bf7ef2193e2d1c5798a5ff8811d533104c861`
 
 This baseline ensures reproducible builds by pinning vcpkg package versions.
 
-### Version Overrides
+### Version Pinning
 
-- **CommonLibSSE-NG**: Pinned to version 3.6.0 for stability
+- **CommonLibSSE NG**: pinned in `CMakeLists.txt` to git tag `v9.0.0` (not vcpkg)
 
 ---
 
@@ -116,8 +132,8 @@ This baseline ensures reproducible builds by pinning vcpkg package versions.
 
 ### For End Users (Runtime)
 
-1. Install SKSE64 (SE/AE) or SKSEVR (VR) for your game version
-2. Install Address Library for SKSE Plugins (SE/AE/VR version)
+1. Install SKSE64 2.3.1 (AE) or SKSEVR 2.0.12 (VR) for your game version
+2. Install Address Library for SKSE Plugins (AE), or VR Address Library (VR)
 3. Install SkyrimCrashGuard via mod manager or manual installation
 4. Ensure DirectX 11 is installed (usually included with Windows 10/11)
 
@@ -177,8 +193,8 @@ cmake --build build --config Release
 # List installed packages
 & "$env:VCPKG_ROOT\vcpkg.exe" list
 
-# Check specific package
-& "$env:VCPKG_ROOT\vcpkg.exe" list commonlibsse-ng
+# CommonLibSSE NG is not a vcpkg package; check the fetched copy instead
+Test-Path "Source/build/_deps/commonlibsse-src/include/REL/IDDB.h"
 ```
 
 ### Verify Build Tools
@@ -193,7 +209,7 @@ cmake --version
 
 ### Verify Runtime Dependencies (End Users)
 
-1. Check SKSE installation: Look for `skse64_loader.exe` (SE/AE) or `sksevr_loader.exe` (VR) in game directory
+1. Check SKSE installation: Look for `skse64_loader.exe` (AE) or `sksevr_loader.exe` (VR) in game directory
 2. Check Address Library: Look for `Data/SKSE/Plugins/version-*.bin` files
 3. Check DirectX 11: Run `dxdiag` and verify DirectX 11 support
 
@@ -201,9 +217,12 @@ cmake --version
 
 ## License Summary
 
-All third-party dependencies use permissive open-source licenses that allow commercial and non-commercial use, modification, and distribution:
+Skyrim Crash Guard itself is **GPL-3.0-or-later** (see `LICENSE`), because it links
+CommonLibSSE NG statically.
 
-- **MIT License**: CommonLibSSE-NG, spdlog, fmt, Zydis, nlohmann-json, toml11, DirectXTK, Dear ImGui, Address Library
+- **GPL-3.0-or-later WITH Modding Exception AND GPL-3.0 Linking Exception**: CommonLibSSE NG
+- **MIT License**: spdlog, fmt, Zydis, nlohmann-json, toml11, DirectXTK, DirectXMath, Dear ImGui, Address Library
+- **BSD 3-Clause License**: rapidcsv
 - **Custom OSS License**: SKSE64/SKSEVR (permissive, allows plugin development)
 - **Boost Software License 1.0**: Catch2 (testing only)
 - **BSD 2-Clause License**: RapidCheck (testing only)
@@ -277,5 +296,5 @@ cmake -S . -B build --fresh
 
 ---
 
-**Last Updated:** 2026-03-13  
-**Verified Against:** Source code commit with vcpkg.json baseline `d1e11918f5c88c1dd364b93e1452fea69bacd479`
+**Last Updated:** 2026-09-21  
+**Verified Against:** Source code commit with vcpkg.json baseline `6d7bf7ef2193e2d1c5798a5ff8811d533104c861` and CommonLibSSE NG `v9.0.0`

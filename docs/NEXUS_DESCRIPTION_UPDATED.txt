@@ -1,6 +1,6 @@
 [center][size=6][b]Skyrim Crash Guard[/b][/size][/center]
 [center][i][b][color=#ff7700]EXPERIMENTAL[/color][/b] - Engine-level crash recovery for Skyrim SE / AE / VR[/i][/center]
-[center]v2.3.6 - Single DLL, all runtimes | MIT open source[/center]
+[center]v2.4.0 - Single DLL for AE + VR | GPL-3.0-or-later open source[/center]
 
 [center]✦ ═══════════════════════════════════════════════════════════ ✦[/center]
 
@@ -15,13 +15,13 @@ CrashGuard also catches integer divide-by-zero (a mod formula hits a zero denomi
 More dangerous types of crashes such as stack overflow, heap corruption, and GPU driver faults, are not prevented. 
 
 
-Full source code on [url=https://github.com/parkerchace/SkyrimCrashGuard]GitHub[/url] - MIT license.
+Full source code on [url=https://github.com/parkerchace/SkyrimCrashGuard]GitHub[/url] - GPL-3.0-or-later.
 
 [b]Who is this for?[/b] Players with large mod lists who keep hitting the same repeatable crash. Mod authors who want to collect multiple crash logs in one session without restarting each time.
 
-[b]Supported versions:[/b] Skyrim SE 1.5.97 / AE 1.6.x (all builds) / VR 1.4.15 - one DLL covers all three.
+[b]Supported versions:[/b] Skyrim AE 1.6.x and 1.7.x (built against 1.7.104) / VR 1.4.15 - one DLL covers both. Skyrim SE 1.5.97 is no longer supported as of v2.4.0.
 
-[b]Requirements:[/b] SKSE64 2.0.x or later (or SKSEVR), Address Library for SKSE, Windows 10/11 64-bit.
+[b]Requirements:[/b] SKSE64 2.3.1 (AE) or SKSEVR 2.0.12 (VR), Address Library for SKSE Plugins (AE) or VR Address Library (VR), Windows 10/11 64-bit.
 
 [center]✦ ═══════════════════════════════════════════════════════════ ✦[/center]
 
@@ -283,7 +283,7 @@ The crash recovery and logging still work normally with the menu disabled.
 A: Not quite. CrashGuard only responds to access violations. When CrashGuard sees one, it checks whether it recognizes the pattern. If it does, it handles it. If it doesn't, it steps aside and the game crashes normally. It doesn't try to intercept crashes it doesn't understand, and it doesn't touch crash types it has no way to handle. The recovery limits described above also mean it stops intervening entirely if too many crashes happen in quick succession. I also make no guarantee of safety and will reassert that this is experimental. 
 
 [b]Q: Is the source code available?[/b]
-A: Yes. Full source on [url=https://github.com/parkerchace/SkyrimCrashGuard]GitHub[/url], MIT license. The recovery chain, every registered crash location, every layer - all public. This is a FOR FUN project so expect things to be rough around the edges. 
+A: Yes. Full source on [url=https://github.com/parkerchace/SkyrimCrashGuard]GitHub[/url], GPL-3.0-or-later (v2.4.0 links CommonLibSSE NG, which is GPL, so the plugin is too). The recovery chain, every registered crash location, every layer - all public. This is a FOR FUN project so expect things to be rough around the edges. 
 
 [b]Q: Will this prevent all crashes?[/b]
 A: No. The majority of crash types are not in scope for this mod. If you're still crashing frequently after installing CrashGuard, run Crash Logger or Trainwreck alongside it to get detailed reports and identify the actual cause.
@@ -326,14 +326,14 @@ The config file is at [font=Courier New]Data\SKSE\Plugins\SkyrimCrashGuard.toml[
 [b]Author:[/b] Parker Chace
 [b]Source code:[/b] [url=https://github.com/parkerchace/SkyrimCrashGuard]https://github.com/parkerchace/SkyrimCrashGuard[/url]
 [b]Bug reports:[/b] GitHub Issues (preferred) or Nexus mod page comments / private message
-[b]License:[/b] MIT
+[b]License:[/b] GPL-3.0-or-later
 
 [center]✦ ═══════════════════════════════════════════════════════════ ✦[/center]
 
 [center][size=4][b]Credits[/b][/size][/center]
 
 [list]
-[*][b]CommonLibSSE-NG[/b] (CharmedBaryon / powerof3 / Ryan-rsm-McKenzie) - SKSE plugin framework, multi-runtime SE/AE/VR support[/*]
+[*][b]CommonLibSSE NG[/b] (alandtse / CharmedBaryon / powerof3 / Ryan-rsm-McKenzie) - SKSE plugin framework, multi-runtime AE/VR support, GPL-3.0-or-later[/*]
 [*][b]SKSE[/b] (Ian Patterson, Stephen Abel, Purple Lunchbox) - Script Extender runtime[/*]
 [*][b]Address Library for SKSE[/b] (meh321) - version-independent offset resolution[/*]
 [*][b]Crash Logger SSE[/b] (meh321) / [b]Trainwreck[/b] (Ryan-rsm-McKenzie) - crash analysis integration reference[/*]

@@ -7,6 +7,8 @@ CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 *.cmake
+# ...but the project's own CMake modules are source, not build output
+!Source/cmake/*.cmake
 
 # Visual Studio
 .vs/

@@ -1,8 +1,20 @@
-﻿// Copyright (C) 2026 Parker Chace
-// SPDX-License-Identifier: MIT
+﻿// Copyright (C) 2024-2026 Parker Chace
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
-// This file is part of Skyrim CrashGuard.
-// Licensed under the MIT License. See LICENSE file in the project root for details.
+// This file is part of Skyrim Crash Guard.
+//
+// Skyrim Crash Guard is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
+//
+// Skyrim Crash Guard is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+// details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ImGuiConfigMenu.h"
 #include "Config.h"
@@ -1288,6 +1300,184 @@ namespace CrashGuard {
         return Config::Get().ComputeHash() != m_savedHash;
     }
 
+    // ==================================================================
+    // Plain-English rendering of a single recovery
+    //
+    // Everything below turns one RecoveryEntry into sentences about that
+    // specific crash: what the game was doing, whose code was involved, and
+    // what CrashGuard changed to keep it running. Nothing here is generic
+    // per-layer prose - the layer description is still shown, but underneath
+    // the concrete account of this event.
+    // ==================================================================
+    namespace {
+
+        bool IsGameExecutable(const std::string& module) {
+            return module == "SkyrimSE.exe" || module == "SkyrimVR.exe" || module == "Skyrim.exe";
+        }
+
+        const char* AccessVerb(int accessType) {
+            switch (accessType) {
+            case 0:  return "read from";
+            case 1:  return "write to";
+            case 8:  return "call into";
+            default: return "access to";
+            }
+        }
+
+        /// The faulting address as a human reads it: "null", "null + 0x18"
+        /// (a field of an object that was not there), or a raw pointer value.
+        std::string FormatAccessTarget(const RecoveryEntry& e) {
+            char buf[64];
+            if (e.accessAddress == 0) {
+                return "null";
+            }
+            if (e.accessAddress < 0x10000) {
+                snprintf(buf, sizeof(buf), "null + 0x%llX", (unsigned long long)e.accessAddress);
+                return buf;
+            }
+            snprintf(buf, sizeof(buf), "0x%llX", (unsigned long long)e.accessAddress);
+            return buf;
+        }
+
+        /// What the fault was, in mechanical terms only.
+        ///
+        /// Deliberately says nothing about whose fault it is. CrashGuard knows the
+        /// instruction, the address it touched and the module the instruction sits in;
+        /// it does not know which mod put the bad value there, so it does not guess.
+        std::string DescribeFault(const RecoveryEntry& e) {
+            const std::string target = FormatAccessTarget(e);
+            char buf[512];
+            std::string s;
+
+            if (e.selfTest) {
+                s = "CrashGuard's own test suite raised this fault on purpose to exercise the "
+                    "recovery chain. It is not a crash from the game.\n\n";
+            }
+
+            const std::string where = e.crashAddr.empty()
+                ? std::string("The faulting instruction")
+                : ("The instruction at " + e.crashAddr);
+
+            switch (e.accessType) {
+            case 0:
+                snprintf(buf, sizeof(buf), "%s read from %s.", where.c_str(), target.c_str());
+                s += buf;
+                break;
+            case 1:
+                snprintf(buf, sizeof(buf), "%s wrote to %s.", where.c_str(), target.c_str());
+                s += buf;
+                break;
+            case 8:
+                snprintf(buf, sizeof(buf), "%s transferred control to %s.", where.c_str(), target.c_str());
+                s += buf;
+                break;
+            default:
+                snprintf(buf, sizeof(buf), "%s raised an access violation.", where.c_str());
+                s += buf;
+                break;
+            }
+
+            // Only characterise the address when the exception record actually told us
+            // what was touched; accessType < 0 means that information was unavailable.
+            if (e.accessType >= 0) {
+                if (e.accessAddress == 0) {
+                    s += " That address is null.";
+                } else if (e.accessAddress < 0x10000) {
+                    snprintf(buf, sizeof(buf), " That address is 0x%llX past null, which is the shape of"
+                                               " a field accessed through a null pointer.",
+                             (unsigned long long)e.accessAddress);
+                    s += buf;
+                } else if (e.accessType == 8) {
+                    s += " That address does not hold executable code.";
+                } else {
+                    s += " That address was not accessible to the process.";
+                }
+            }
+
+            return s;
+        }
+
+        /// What CrashGuard actually changed, with this event's register and layer.
+        std::string DescribeFix(const RecoveryEntry& e) {
+            const std::string reg = e.affectedRegister.empty() ? std::string("the destination register")
+                                                               : e.affectedRegister;
+            switch (e.layerUsed) {
+            case LayerID::UR_ZeroedReg:
+            case LayerID::H_InstrSkip:
+            case LayerID::H_Learned:
+                return "Set " + reg + " to 0 and resumed at the instruction after the fault, so the"
+                       " read returned zero instead of faulting.";
+            case LayerID::UR_ZeroedXMM:
+                return "Set " + reg + " to 0.0 and resumed at the next instruction, so the floating-point"
+                       " read returned zero instead of faulting.";
+            case LayerID::UR_WriteSkip:
+                return "Did not perform the write, and resumed at the next instruction.";
+            case LayerID::UR_FlagsSkip:
+                return "Skipped the instruction. It only sets CPU flags, so there was no destination"
+                       " value to supply; execution continued on the not-equal branch.";
+            case LayerID::UR_FuncReturn:
+            case LayerID::H_FuncReturn:
+                return "Returned from the faulting function with RAX = 0 instead of continuing"
+                       " through it.";
+            case LayerID::UR_DeepWalk:
+            case LayerID::H_DeepWalk:
+                return "Scanned the call stack for a valid return address and resumed execution"
+                       " there, skipping the faulting frame.";
+            case LayerID::ExecAV_Return:
+                return "Popped the return address the CALL had pushed, set RAX = 0 and resumed in the"
+                       " caller, so the call returned null instead of executing.";
+            case LayerID::H_KnownSite:
+                return "Recognised this exact address from the pre-analysed crash-site table and"
+                       " applied its known fix immediately - no instruction decode needed.";
+            case LayerID::H_Pattern:
+                return "Decoded the faulting instruction and matched it to a known recovery pattern,"
+                       " then applied that fix. Works regardless of game version.";
+            case LayerID::H_RegFixup:
+                return "Pointed " + reg +
+                       " at a safe scratch buffer so the instruction could complete without touching"
+                       " invalid memory.";
+            case LayerID::CascadeLimit:
+                return "Refused to recover: this site had already fired too many times in a moment,"
+                       " and continuing would have masked a deeper problem.";
+            case LayerID::CooldownBlocked:
+                return "Refused to recover: recoveries were coming in too fast, so the handler backed"
+                       " off briefly.";
+            default:
+                return e.rootCause.empty()
+                    ? std::string("Applied its recovery and resumed execution.")
+                    : "Applied '" + e.rootCause + "' and resumed execution.";
+            }
+        }
+
+        /// Compact plain-text version of the whole entry, for bug reports.
+        std::string BuildRecoveryReport(const RecoveryEntry& e, int repeats) {
+            std::string r;
+            r += e.selfTest ? "Skyrim CrashGuard - self-test recovery (not a game crash)\n"
+                            : "Skyrim CrashGuard - recovered crash\n";
+            r += "  Address     : " + (e.crashAddr.empty() ? std::string("unknown") : e.crashAddr) + "\n";
+            r += "  Module      : " + (e.moduleName.empty() ? std::string("unknown") : e.moduleName) + "\n";
+            if (!e.suspectedMods.empty()) {
+                r += "  Mods on stack: ";
+                for (size_t i = 0; i < e.suspectedMods.size(); ++i) {
+                    if (i) r += ", ";
+                    r += e.suspectedMods[i];
+                }
+                r += "\n";
+            }
+            if (!e.timestamp.empty())          r += "  Time        : " + e.timestamp + "\n";
+            if (repeats > 1)                   r += "  Occurrences : " + std::to_string(repeats) + " at this address this session\n";
+            if (!e.decodedInstruction.empty()) r += "  Instruction : " + e.decodedInstruction + "\n";
+            if (e.accessType >= 0)             r += "  Access      : " + std::string(AccessVerb(e.accessType)) + " " + FormatAccessTarget(e) + "\n";
+            if (!e.affectedRegister.empty())   r += "  Register    : " + e.affectedRegister + " set to 0\n";
+            r += "  Layer       : " + std::string(CrashGuard::GetLayerDisplayName(e.layerUsed)) + "\n";
+            r += "  Outcome     : " + std::string(e.successful ? "recovered" : "not recovered") + "\n\n";
+            r += DescribeFault(e) + "\n";
+            r += DescribeFix(e) + "\n";
+            return r;
+        }
+
+    }  // namespace
+
     void ImGuiConfigMenu::RenderRecentRecoveriesTab() {
 
         auto& recoverySystem = RecoveryNotifications::GetSingleton();
@@ -1305,8 +1495,21 @@ namespace CrashGuard {
             size_t tot = recoverySystem.GetTotalRecoveries();
             size_t ok  = recoverySystem.GetSuccessfulRecoveries();
             size_t bad = recoverySystem.GetFailedRecoveries();
+
+            // Faults raised by the built-in test suite are counted apart from real ones:
+            // a history full of self-tests should not read as the game crashing.
+            size_t selfTests = 0;
+            for (const auto& r : recoveries) {
+                if (r.selfTest) ++selfTests;
+            }
+
             ImGui::TextColored(ImVec4(0.44f, 0.44f, 0.44f, 1.f),
                 "Session: %zu recovered,  %zu failed", ok, bad);
+            if (selfTests > 0) {
+                ImGui::SameLine(0.f, 8.f);
+                ImGui::TextColored(ImVec4(0.55f, 0.70f, 1.f, 1.f),
+                    "(%zu of the entries below are CrashGuard self-tests)", selfTests);
+            }
             (void)tot;
         }
 
@@ -1354,9 +1557,10 @@ namespace CrashGuard {
             else
                 ImGui::TextColored(ImVec4(1.f, 0.28f, 0.28f, 1.f), "x");
 
-            // Crash address or root cause (truncated)
+            // Crash address or root cause (truncated), tagged when it is a self-test
             ImGui::SameLine(20.f);
-            const std::string& label = e.crashAddr.empty() ? e.rootCause : e.crashAddr;
+            const std::string  addrLabel = e.crashAddr.empty() ? e.rootCause : e.crashAddr;
+            const std::string  label     = e.selfTest ? ("[test] " + addrLabel) : addrLabel;
             ImVec4 labelCol = sel ? ImVec4(1.f, 1.f, 1.f, 1.f) : ImVec4(0.72f, 0.72f, 0.72f, 1.f);
             // Truncate to fit
             char truncated[36] = {};
@@ -1370,162 +1574,245 @@ namespace CrashGuard {
 
         ImGui::EndChild();  // RecList
 
-        // ── Right: detail ────────────────────────────────────────────────────
+        // -- Right: detail --------------------------------------------------
         ImGui::SameLine();
         ImGui::BeginChild("RecDetail", ImVec2(detailW, totalH), true);
 
         const auto& e = recoveries[s_selRec];
 
+        // How often this exact address has come back this session. A one-off and a
+        // site that fires every few seconds call for very different reactions, and
+        // that distinction was invisible before.
+        int repeats = 0;
+        if (!e.crashAddr.empty()) {
+            for (const auto& other : recoveries) {
+                if (other.crashAddr == e.crashAddr) ++repeats;
+            }
+        }
+
+        const ImVec4 kGreen  (0.24f, 0.90f, 0.36f, 1.f);
+        const ImVec4 kRed    (1.00f, 0.32f, 0.32f, 1.f);
+        const ImVec4 kAmber  (1.00f, 0.70f, 0.22f, 1.f);
+        const ImVec4 kCyan   (0.38f, 0.78f, 1.00f, 1.f);
+        const ImVec4 kDim    (0.46f, 0.46f, 0.48f, 1.f);
+        const ImVec4 kBody   (0.80f, 0.80f, 0.82f, 1.f);
+        const ImVec4 kCode   (0.72f, 0.90f, 0.60f, 1.f);
+
         ImGui::Spacing();
 
-        // ── Crash address (heading) ────────────────────────────────────
-        ImGui::SetWindowFontScale(1.16f);
+        // -- Status line: outcome, when, how often --------------------------
+        if (e.successful)
+            ImGui::TextColored(kGreen, "RECOVERED");
+        else
+            ImGui::TextColored(kRed, "NOT RECOVERED");
+
+        if (e.selfTest) {
+            ImGui::SameLine(0.f, 8.f);
+            ImGui::TextColored(ImVec4(0.55f, 0.70f, 1.f, 1.f), "[SELF-TEST]");
+        }
+
+        if (!e.timestamp.empty()) {
+            ImGui::SameLine(0.f, 8.f);
+            ImGui::TextColored(kDim, "at %s", e.timestamp.c_str());
+        }
+        if (repeats > 1) {
+            ImGui::SameLine(0.f, 8.f);
+            ImGui::TextColored(kAmber, "- %dx at this address this session", repeats);
+        }
+
+        // -- Crash address --------------------------------------------------
+        ImGui::Spacing();
+        ImGui::SetWindowFontScale(1.18f);
         if (!e.crashAddr.empty())
             ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 1.f), "%s", e.crashAddr.c_str());
         else
             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.f), "Unknown address");
         ImGui::SetWindowFontScale(1.f);
 
-        // ── Module — highlight non-game DLLs (likely the responsible mod) ──
-        if (!e.moduleName.empty()) {
-            bool isGameExe = (e.moduleName == "SkyrimSE.exe" ||
-                              e.moduleName == "SkyrimVR.exe"  ||
-                              e.moduleName == "Skyrim.exe");
-            ImGui::SameLine(0.f, 8.f);
-            if (isGameExe)
-                ImGui::TextColored(ImVec4(0.45f, 0.45f, 0.45f, 1.f), "(%s)", e.moduleName.c_str());
-            else
-                ImGui::TextColored(ImVec4(1.f, 0.70f, 0.20f, 1.f), "  mod: %s", e.moduleName.c_str());
-        }
-
-        ImGui::Spacing();
-
-        // ── Outcome + timestamp ────────────────────────────────────────
-        if (e.successful)
-            ImGui::TextColored(ImVec4(0.22f, 1.f, 0.22f, 1.f), "Recovered");
-        else
-            ImGui::TextColored(ImVec4(1.f, 0.30f, 0.30f, 1.f), "Not recovered");
-        ImGui::SameLine(100.f);
-        ImGui::TextColored(ImVec4(0.40f, 0.40f, 0.40f, 1.f), "%s", e.timestamp.c_str());
-
-        // ── Decoded instruction ────────────────────────────────────────
-        if (!e.decodedInstruction.empty()) {
-            ImGui::Spacing();
-            ImGui::TextColored(ImVec4(0.44f, 0.44f, 0.44f, 1.f), "Instruction:");
-            ImGui::SameLine();
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.72f, 0.90f, 0.60f, 1.f));
-            ImGui::TextUnformatted(e.decodedInstruction.c_str());
-            ImGui::PopStyleColor();
-        }
-
-        // ── Access details ─────────────────────────────────────────────
-        if (e.accessType >= 0) {
-            ImGui::Spacing();
-            const char* typeLbl = (e.accessType == 0) ? "Read from"
-                                : (e.accessType == 1) ? "Write to"
-                                : (e.accessType == 8) ? "Execute"
-                                : "Access";
-
-            bool isNullRegion = (e.accessAddress < 0x10000);
-            char addrBuf[64];
-            if (e.accessAddress == 0)
-                snprintf(addrBuf, sizeof(addrBuf), "null (0x0)");
-            else if (isNullRegion)
-                snprintf(addrBuf, sizeof(addrBuf), "null + 0x%llX",
-                         (unsigned long long)e.accessAddress);
-            else
-                snprintf(addrBuf, sizeof(addrBuf), "0x%llX",
-                         (unsigned long long)e.accessAddress);
-
-            ImGui::TextColored(ImVec4(0.44f, 0.44f, 0.44f, 1.f), "%s", typeLbl);
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1.f, 0.60f, 0.60f, 1.f), "%s", addrBuf);
-        }
-
-        // ── Register affected ──────────────────────────────────────────
-        if (!e.affectedRegister.empty()) {
-            ImGui::Spacing();
-            ImGui::TextColored(ImVec4(0.44f, 0.44f, 0.44f, 1.f), "Register zeroed:");
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.80f, 0.80f, 1.f, 1.f), "%s", e.affectedRegister.c_str());
-        }
-
-        // ── Suspected mods ─────────────────────────────────────────────
-        if (!e.suspectedMods.empty()) {
-            ImGui::Spacing();
-            ImGui::TextColored(ImVec4(1.f, 0.68f, 0.22f, 1.f), "Suspected mods:");
-            for (const auto& mod : e.suspectedMods)
-                ImGui::BulletText("%s", mod.c_str());
-        }
-
-        // ── Recovery layer section ─────────────────────────────────────
-        using LID = CrashGuard::LayerID;
-        const bool hasLayer = (e.layerUsed != LID::Unrecovered);
-
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Spacing();
 
+        // -- What happened --------------------------------------------------
+        ImGui::TextColored(kCyan, "What happened");
+        ImGui::Spacing();
+        ImGui::PushStyleColor(ImGuiCol_Text, kBody);
+        ImGui::TextWrapped("%s", DescribeFault(e).c_str());
+        ImGui::PopStyleColor();
+
+        // -- Where it faulted ------------------------------------------------
+        // Reports what was observed: the module holding the faulting instruction and
+        // the modules seen in the stack slots below it. No attribution of blame -
+        // CrashGuard cannot tell which mod put the bad value there.
+        ImGui::Spacing();
+        ImGui::Spacing();
+        ImGui::TextColored(kCyan, "Where it faulted");
+        ImGui::Spacing();
+
+        {
+            ImGui::TextColored(kDim, "Module");
+            ImGui::SameLine(120.f);
+            if (e.selfTest) {
+                ImGui::TextColored(ImVec4(0.65f, 0.75f, 1.f, 1.f), "CrashGuard test harness");
+            } else if (e.moduleName.empty() || e.moduleName == "unknown") {
+                ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.85f, 1.f),
+                    "not in any loaded module (allocated code page)");
+            } else if (IsGameExecutable(e.moduleName)) {
+                ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.85f, 1.f), "%s", e.moduleName.c_str());
+            } else {
+                ImGui::TextColored(kAmber, "%s", e.moduleName.c_str());
+            }
+
+            if (!e.selfTest) {
+                ImGui::TextColored(kDim, "Also on stack");
+                ImGui::SameLine(120.f);
+                if (!e.suspectedMods.empty()) {
+                    std::string joined;
+                    for (size_t i = 0; i < e.suspectedMods.size(); ++i) {
+                        if (i) joined += ", ";
+                        joined += e.suspectedMods[i];
+                    }
+                    ImGui::TextColored(kAmber, "%s", joined.c_str());
+                } else {
+                    ImGui::TextColored(kDim, "no non-game modules found");
+                }
+
+                ImGui::Spacing();
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.44f, 1.f));
+                ImGui::TextWrapped(
+                    "The module above is where the faulting instruction sits, which is not necessarily "
+                    "where the bad value came from. Stack modules are read from raw stack slots rather "
+                    "than unwound, so some entries can be stale: this is what was present, not a "
+                    "diagnosis.");
+                ImGui::PopStyleColor();
+            }
+        }
+
+        // -- What CrashGuard did --------------------------------------------
+        using LID = CrashGuard::LayerID;
+        const bool hasLayer = (e.layerUsed != LID::Unrecovered);
+
+        ImGui::Spacing();
+        ImGui::Spacing();
+        ImGui::TextColored(kCyan, "What CrashGuard did");
+        ImGui::Spacing();
+
         if (!hasLayer) {
-            ImGui::TextColored(ImVec4(1.f, 0.38f, 0.38f, 1.f), "Not recovered");
+            ImGui::TextColored(kRed, "Nothing could be applied");
             ImGui::Spacing();
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.55f, 0.55f, 1.f));
+            ImGui::PushStyleColor(ImGuiCol_Text, kBody);
             ImGui::TextWrapped("%s", CrashGuard::GetLayerShortDesc(LID::Unrecovered));
             ImGui::PopStyleColor();
         } else {
-            // Layer badge + name
-            ImGui::TextColored(ImVec4(0.38f, 0.78f, 1.f, 1.f), "How CrashGuard fixed it:");
-            ImGui::Spacing();
-            ImGui::TextColored(ImVec4(0.22f, 1.f, 0.22f, 1.f), "[OK]");
+            ImGui::TextColored(kGreen, "[OK]");
             ImGui::SameLine(50.f);
             ImGui::SetWindowFontScale(1.08f);
             ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 1.f), "%s",
                 CrashGuard::GetLayerDisplayName(e.layerUsed));
             ImGui::SetWindowFontScale(1.f);
 
-            // Source location
-            auto loc = CrashGuard::GetLayerCodeLocation(e.layerUsed);
-            if (loc.file && loc.line > 0) {
-                ImGui::SameLine();
-                ImGui::TextColored(ImVec4(0.36f, 0.36f, 0.40f, 1.f),
-                    "  (%s : %d)", loc.file, loc.line);
-            }
+            ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Text, kBody);
+            ImGui::TextWrapped("%s", DescribeFix(e).c_str());
+            ImGui::PopStyleColor();
 
             ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.50f, 0.52f, 1.f));
+            ImGui::TextWrapped("%s", CrashGuard::GetLayerShortDesc(e.layerUsed));
+            ImGui::PopStyleColor();
+        }
 
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
+        // -- Details ---------------------------------------------------------
+        ImGui::Spacing();
+        ImGui::Spacing();
+        ImGui::TextColored(kCyan, "Details");
+        ImGui::SameLine();
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 12.f);
+        if (ImGui::SmallButton("Copy report")) {
+            ImGui::SetClipboardText(BuildRecoveryReport(e, repeats).c_str());
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Copy this recovery as text, ready to paste into a bug report.");
+        }
+        ImGui::Spacing();
 
-            // Full code journey
-            int jCount = 0;
-            const CrashGuard::JourneyStep* jSteps =
-                CrashGuard::GetLayerJourney(e.layerUsed, &jCount);
-            for (int ji = 0; ji < jCount; ++ji) {
-                const auto& js = jSteps[ji];
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.34f, 0.34f, 0.38f, 1.f));
-                if (js.lineTo > 0 && js.lineTo != js.lineFrom)
-                    ImGui::Text("  %s : %d-%d", js.file, js.lineFrom, js.lineTo);
-                else
-                    ImGui::Text("  %s : %d", js.file, js.lineFrom);
-                ImGui::PopStyleColor();
-                ImGui::SameLine(0.f, 6.f);
-                ImGui::TextColored(ImVec4(0.88f, 0.88f, 0.88f, 1.f), "%s", js.heading);
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.50f, 0.50f, 1.f));
-                ImGui::TextWrapped("  %s", js.explanation);
-                ImGui::PopStyleColor();
-                ImGui::Spacing();
-                if (js.code && js.code[0]) {
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.72f, 0.88f, 0.60f, 1.f));
-                    ImGui::TextUnformatted(js.code);
-                    ImGui::PopStyleColor();
+        const float kValueX = 120.f;
+
+        if (!e.decodedInstruction.empty()) {
+            ImGui::TextColored(kDim, "Instruction");
+            ImGui::SameLine(kValueX);
+            ImGui::TextColored(kCode, "%s", e.decodedInstruction.c_str());
+        }
+
+        if (e.accessType >= 0) {
+            ImGui::TextColored(kDim, "Access");
+            ImGui::SameLine(kValueX);
+            ImGui::TextColored(ImVec4(1.f, 0.62f, 0.62f, 1.f), "%s %s",
+                AccessVerb(e.accessType), FormatAccessTarget(e).c_str());
+        }
+
+        if (!e.affectedRegister.empty()) {
+            ImGui::TextColored(kDim, "Register");
+            ImGui::SameLine(kValueX);
+            ImGui::TextColored(ImVec4(0.80f, 0.80f, 1.f, 1.f), "%s set to 0", e.affectedRegister.c_str());
+        }
+
+        if (!e.rootCause.empty()) {
+            ImGui::TextColored(kDim, "Method");
+            ImGui::SameLine(kValueX);
+            ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.85f, 1.f), "%s", e.rootCause.c_str());
+        }
+
+        if (!e.severity.empty()) {
+            ImGui::TextColored(kDim, "Severity");
+            ImGui::SameLine(kValueX);
+            ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.85f, 1.f), "%s", e.severity.c_str());
+        }
+
+        // -- Source walkthrough (collapsed) ----------------------------------
+        // Kept for the curious, but folded away: it is the same text for every
+        // crash handled by a given layer, so it used to bury the parts above
+        // that actually differ from one crash to the next.
+        if (hasLayer) {
+            ImGui::Spacing();
+            ImGui::Spacing();
+            if (ImGui::CollapsingHeader("CrashGuard source walkthrough")) {
+                auto loc = CrashGuard::GetLayerCodeLocation(e.layerUsed);
+                if (loc.file && loc.line > 0) {
+                    ImGui::TextColored(ImVec4(0.36f, 0.36f, 0.40f, 1.f),
+                        "Applied at %s : %d", loc.file, loc.line);
+                    ImGui::Spacing();
                 }
-                if (ji < jCount - 1) {
-                    ImGui::Spacing();
-                    ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(0.18f, 0.18f, 0.20f, 1.f));
-                    ImGui::Separator();
+
+                int jCount = 0;
+                const CrashGuard::JourneyStep* jSteps =
+                    CrashGuard::GetLayerJourney(e.layerUsed, &jCount);
+                for (int ji = 0; ji < jCount; ++ji) {
+                    const auto& js = jSteps[ji];
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.34f, 0.34f, 0.38f, 1.f));
+                    if (js.lineTo > 0 && js.lineTo != js.lineFrom)
+                        ImGui::Text("  %s : %d-%d", js.file, js.lineFrom, js.lineTo);
+                    else
+                        ImGui::Text("  %s : %d", js.file, js.lineFrom);
+                    ImGui::PopStyleColor();
+                    ImGui::SameLine(0.f, 6.f);
+                    ImGui::TextColored(ImVec4(0.88f, 0.88f, 0.88f, 1.f), "%s", js.heading);
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.50f, 0.50f, 1.f));
+                    ImGui::TextWrapped("  %s", js.explanation);
                     ImGui::PopStyleColor();
                     ImGui::Spacing();
+                    if (js.code && js.code[0]) {
+                        ImGui::PushStyleColor(ImGuiCol_Text, kCode);
+                        ImGui::TextUnformatted(js.code);
+                        ImGui::PopStyleColor();
+                    }
+                    if (ji < jCount - 1) {
+                        ImGui::Spacing();
+                        ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(0.18f, 0.18f, 0.20f, 1.f));
+                        ImGui::Separator();
+                        ImGui::PopStyleColor();
+                        ImGui::Spacing();
+                    }
                 }
             }
         }
